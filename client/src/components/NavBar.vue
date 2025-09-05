@@ -8,28 +8,125 @@
 
     <!-- Navigation Links -->
     <div class="nav__links">
-      <RouterLink class="nav__link" to="/">Dashboard</RouterLink>
-      <RouterLink class="nav__link" to="/runsheets">Run Sheets</RouterLink>
-      <RouterLink class="nav__link" to="/items">Items</RouterLink>
-      <RouterLink class="nav__link" to="/places">Places</RouterLink>
+      <RouterLink class="nav__link" to="/" draggable="false">Dashboard</RouterLink>
+      <RouterLink class="nav__link" to="/runsheets" draggable="false">Run Sheets</RouterLink>
+      <RouterLink class="nav__link" to="/sets" draggable="false">Sets</RouterLink>
+      <RouterLink class="nav__link" to="/people" draggable="false">People</RouterLink>
+      <RouterLink class="nav__link" to="/items" draggable="false">Items</RouterLink>
+      <RouterLink class="nav__link" to="/places" draggable="false">Places</RouterLink>
+      <RouterLink class="nav__link" to="/suppliers" draggable="false">Suppliers</RouterLink>
       <RouterLink
-        v-if="me?.role==='admin'"
+        v-if="userRole === 'admin'"
         class="nav__link"
         to="/admin/users"
+        draggable="false"
       >Admin</RouterLink>
     </div>
 
     <!-- User Info -->
     <div class="nav__right">
-      <img v-if="me?.photo" :src="me.photo" class="nav__avatar" alt="Profile" />
-      <span class="nav__name" :title="me?.name">{{ me?.name }}</span>
+      <img
+        v-if="photoSrc"
+        :src="photoSrc"
+        class="nav__avatar"
+        :alt="displayName || 'Profile'"
+        draggable="false"
+      />
+      <span class="nav__name" :title="displayName">{{ displayName }}</span>
       <button class="btn btn--ghost" @click="$emit('logout')">Logout</button>
     </div>
   </nav>
 </template>
 
 <script setup>
-const props = defineProps({ me: Object });
+import { computed } from 'vue';
+import { RouterLink } from 'vue-router';
+import { useAuth } from '../stores/auth.js';
+
+
+
+const props = defineProps({
+  me: { type: Object, default: null },
+});
+defineEmits(['logout']);
+
+const auth = useAuth();
+
+// Prefer the passed-in user; fall back to auth store user
+const user = computed(() => props.me || auth.user || null);
+const userRole = computed(() => user.value?.role || auth.user?.role || '');
+
+// Display name fallbacks
+const displayName = computed(() =>
+  user.value?.name ||
+  user.value?.fullName ||
+  user.value?.displayName ||
+  user.value?.email ||
+  ''
+);
+
+// --- pick up more possible photo fields (Google, Firebase, Passport, etc.) ---
+const rawPhoto = computed(() => {
+  const u = user.value || {};
+  return (
+    u.photo ||
+    u.avatar ||
+    u.photoUrl ||
+    u.photoURL ||
+    u.picture ||
+    u.image?.url ||
+    u.image ||
+    u.providerData?.[0]?.photoURL ||
+    u.photos?.[0]?.value ||
+    u.profile?._json?.picture ||
+    u.profile?.picture ||
+    u.profile?.photos?.[0]?.value ||
+    '' // fallback
+  );
+});
+
+// --- robust origin (same as before, just a bit stricter) ---
+const rawApiBase = (import.meta.env.VITE_API_BASE || 'http://localhost:4000/api').replace(/\/+$/, '');
+const apiOrigin  = rawApiBase.replace(/\/api\/?$/, '') || window.location.origin;
+
+// Normalize to a usable <img src>
+function normalizePhoto(p) {
+  if (!p) return '';
+
+  // absolute or data URI?
+  if (/^(?:https?:)?\/\//i.test(p) || p.startsWith('data:')) {
+    // protocol-relative? force https
+    if (p.startsWith('//')) return `https:${p}`;
+    // avoid mixed content: upgrade http->https if our page is https
+    if (location.protocol === 'https:' && p.startsWith('http:')) {
+      p = p.replace(/^http:/i, 'https:');
+    }
+    // Google tweak: add a sensible size if none present
+    try {
+      const u = new URL(p, location.origin);
+      if (/\bgoogleusercontent\.com$/i.test(u.hostname) && !/[?&]sz=|[?&]s=\d+/i.test(u.search)) {
+        // prefer sz=128 for newer endpoints; many also accept '=s128-c' suffix
+        u.search += (u.search ? '&' : '?') + 'sz=128';
+        return u.toString();
+      }
+    } catch {
+      /* ignore URL parse errors */
+    }
+    return p;
+  }
+
+  // anything with '/uploads/' inside (even a filesystem path) → map to public uploads
+  let s = String(p).replace(/\\/g, '/');
+  const idx = s.indexOf('/uploads/');
+  if (idx !== -1) s = s.slice(idx);
+  if (!s.startsWith('/')) s = `/${s}`;
+  if (!s.startsWith('/uploads/')) s = s.replace(/^\/+/, '/uploads/');
+
+  return `${apiOrigin}${s}`;
+}
+
+const photoSrc = computed(() => normalizePhoto(rawPhoto.value));
+
 </script>
 
 <style scoped>
