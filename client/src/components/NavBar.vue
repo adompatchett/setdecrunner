@@ -15,12 +15,16 @@
       <RouterLink class="nav__link" to="/items" draggable="false">Items</RouterLink>
       <RouterLink class="nav__link" to="/places" draggable="false">Places</RouterLink>
       <RouterLink class="nav__link" to="/suppliers" draggable="false">Suppliers</RouterLink>
+
+      <!-- 🔑 Admin-only: Create Users -->
       <RouterLink
         v-if="userRole === 'admin'"
-        class="nav__link"
+        class="nav__link nav__link--admin"
         to="/admin/users"
         draggable="false"
-      >Admin</RouterLink>
+      >
+        Create Users
+      </RouterLink>
     </div>
 
     <!-- User Info -->
@@ -43,92 +47,54 @@ import { computed } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useAuth } from '../stores/auth.js';
 
-
-
-const props = defineProps({
-  me: { type: Object, default: null },
-});
+const props = defineProps({ me: { type: Object, default: null } });
 defineEmits(['logout']);
 
 const auth = useAuth();
-
-// Prefer the passed-in user; fall back to auth store user
 const user = computed(() => props.me || auth.user || null);
 const userRole = computed(() => user.value?.role || auth.user?.role || '');
 
-// Display name fallbacks
 const displayName = computed(() =>
-  user.value?.name ||
-  user.value?.fullName ||
-  user.value?.displayName ||
-  user.value?.email ||
-  ''
+  user.value?.name || user.value?.fullName || user.value?.displayName || user.value?.email || ''
 );
 
-// --- pick up more possible photo fields (Google, Firebase, Passport, etc.) ---
 const rawPhoto = computed(() => {
   const u = user.value || {};
   return (
-    u.photo ||
-    u.avatar ||
-    u.photoUrl ||
-    u.photoURL ||
-    u.picture ||
-    u.image?.url ||
-    u.image ||
-    u.providerData?.[0]?.photoURL ||
-    u.photos?.[0]?.value ||
-    u.profile?._json?.picture ||
-    u.profile?.picture ||
-    u.profile?.photos?.[0]?.value ||
-    '' // fallback
+    u.photo || u.avatar || u.photoUrl || u.photoURL || u.picture ||
+    u.image?.url || u.image || u.providerData?.[0]?.photoURL ||
+    u.photos?.[0]?.value || u.profile?._json?.picture ||
+    u.profile?.picture || u.profile?.photos?.[0]?.value || ''
   );
 });
 
-// --- robust origin (same as before, just a bit stricter) ---
 const rawApiBase = (import.meta.env.VITE_API_BASE || 'http://localhost:4000/api').replace(/\/+$/, '');
 const apiOrigin  = rawApiBase.replace(/\/api\/?$/, '') || window.location.origin;
 
-// Normalize to a usable <img src>
 function normalizePhoto(p) {
   if (!p) return '';
-
-  // absolute or data URI?
   if (/^(?:https?:)?\/\//i.test(p) || p.startsWith('data:')) {
-    // protocol-relative? force https
     if (p.startsWith('//')) return `https:${p}`;
-    // avoid mixed content: upgrade http->https if our page is https
-    if (location.protocol === 'https:' && p.startsWith('http:')) {
-      p = p.replace(/^http:/i, 'https:');
-    }
-    // Google tweak: add a sensible size if none present
+    if (location.protocol === 'https:' && p.startsWith('http:')) p = p.replace(/^http:/i, 'https:');
     try {
       const u = new URL(p, location.origin);
       if (/\bgoogleusercontent\.com$/i.test(u.hostname) && !/[?&]sz=|[?&]s=\d+/i.test(u.search)) {
-        // prefer sz=128 for newer endpoints; many also accept '=s128-c' suffix
         u.search += (u.search ? '&' : '?') + 'sz=128';
         return u.toString();
       }
-    } catch {
-      /* ignore URL parse errors */
-    }
+    } catch {}
     return p;
   }
-
-  // anything with '/uploads/' inside (even a filesystem path) → map to public uploads
   let s = String(p).replace(/\\/g, '/');
   const idx = s.indexOf('/uploads/');
   if (idx !== -1) s = s.slice(idx);
   if (!s.startsWith('/')) s = `/${s}`;
   if (!s.startsWith('/uploads/')) s = s.replace(/^\/+/, '/uploads/');
-
   return `${apiOrigin}${s}`;
 }
 
 const photoSrc = computed(() => normalizePhoto(rawPhoto.value));
-
 </script>
-
 <style scoped>
 /* ---- Layout ---- */
 .nav {

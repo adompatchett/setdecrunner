@@ -18,6 +18,7 @@ import itemRoutes from './routes/items.js';
 import placeRoutes from './routes/places.js';
 import supplierRoutes from './routes/suppliers.js';
 import peopleRoutes from './routes/people.js';
+import adminUsersRouter from './routes/adminuser.js';
 
 
 // 🔹 NEW: Sets routes
@@ -57,6 +58,7 @@ app.use('/api/items', itemRoutes);
 app.use('/api/places', placeRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/people', peopleRoutes);
+app.use('/api/admin', adminUsersRouter); // <-- mounts /api/admin/users
 // 🔹 NEW: Sets API
 app.use('/api/sets', setRoutes);
 
