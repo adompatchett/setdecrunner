@@ -4,7 +4,7 @@
 
     <div class="container">
       <!-- Toolbar -->
-      <div class="toolbar card">
+      <div class="toolbar">
         <button class="btn btn--primary" @click="createRS" :disabled="creating">
           {{ creating ? 'Creating…' : 'New Run Sheet' }}
         </button>
@@ -27,10 +27,19 @@
           <span>Open pool</span>
         </label>
 
-        <div class="spacer"></div>
+        <!-- Type filter -->
+        <select v-model="typeFilter" class="select">
+          <option value="">All types</option>
+          <option value="purchase">Purchase</option>
+          <option value="rental">Rental</option>
+        </select>
 
         <input v-model="q" placeholder="Filter by title" class="input input--grow" />
-        <button class="btn" @click="load" :disabled="loading">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
+
+        <button class="btn" @click="load" :disabled="loading">
+          {{ loading ? 'Refreshing…' : 'Refresh' }}
+        </button>
+
         <span class="muted" v-if="lastUpdated">Updated {{ lastUpdated }}</span>
       </div>
 
@@ -38,26 +47,46 @@
       <div v-if="loading" class="muted">Loading…</div>
 
       <div v-else class="list">
-        <div
-          v-for="r in filteredList"
-          :key="r._id"
-          class="card item"
-        >
-          <div class="item__left">
+        <div v-for="r in filteredList" :key="r._id" class="card item">
+          <!-- Left column -->
+          <div>
             <div class="item__title">
-              <RouterLink class="link" :to="'/runsheets/'+r._id">{{ r.title || 'Untitled' }}</RouterLink>
+              <RouterLink class="link" :to="{ name: 'runsheet-view', params: { id: r._id } }">
+                {{ r.title || 'Untitled' }}
+              </RouterLink>
               <span class="badge">{{ r.status }}</span>
+              <span v-if="r.purchaseType" class="badge">{{ r.purchaseType }}</span>
             </div>
             <div class="meta">
               <span>Created: {{ shortDate(r.createdAt) }}</span>
-              <span v-if="r.date">For: {{ shortDate(r.date) }}</span>
-              <span>By: {{ r.createdBy?.name || '—' }}</span>
-              <span>Assigned: {{ r.assignedTo?.name || '—' }}</span>
+              <span v-if="r.date"> · For: {{ shortDate(r.date) }}</span>
+              <span> · By: {{ r.createdBy?.name || '—' }}</span>
+              <span> · Assigned: {{ r.assignedTo?.name || '—' }}</span>
             </div>
           </div>
 
+          <!-- Right column: actions -->
           <div class="item__actions">
-            <RouterLink class="btn" :to="'/runsheets/'+r._id">Open</RouterLink>
+            <RouterLink
+              class="btn"
+              :to="{ name: 'runsheet-view', params: { id: r._id } }"
+            >
+              View Official
+            </RouterLink>
+
+            <RouterLink
+              class="btn"
+              :to="{ name: 'runsheet-beta', params: { id: r._id } }"
+            >
+              View Beta
+            </RouterLink>
+
+            <RouterLink
+            class="btn"
+            :to="{ name: 'runsheet-edit',params:{id: r._id}}">
+          
+          Edit Runsheet
+          </RouterLink>
 
             <!-- Claim (open + unassigned) -->
             <button
@@ -151,7 +180,7 @@
               <div v-if="details[r._id].stops?.length" class="stops">
                 <div v-for="s in details[r._id].stops" :key="s._id" class="stop">
                   <div class="stop__title">{{ s.title || s.place?.name }}</div>
-                  <div class="stop__addr" v-if="s.place?.address">{{ s.place.address }}</div>
+                  <div v-if="s.place?.address" class="stop__addr">{{ s.place.address }}</div>
                 </div>
               </div>
               <div v-else class="muted">No stops yet.</div>
@@ -159,7 +188,7 @@
           </details>
         </div>
 
-        <div v-if="!filteredList.length" class="card empty">
+        <div v-if="!filteredList.length" class="empty">
           No runsheets match your filters.
         </div>
       </div>
@@ -171,11 +200,12 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue';
-import { RouterLink } from 'vue-router';
+import { RouterLink, useRouter } from 'vue-router';
 import { useAuth } from '../stores/auth.js';
 import NavBar from '../components/NavBar.vue';
 import api from '../api/index.js';
 
+const router = useRouter();
 const auth = useAuth();
 const me = ref(null);
 
@@ -191,6 +221,7 @@ const mine = ref(false);
 const assignedToMe = ref(false);
 const open = ref(false);
 const statusFilter = ref('');
+const typeFilter = ref(''); // '', 'purchase', 'rental'
 const q = ref('');
 
 const statuses = ['draft','open','assigned','claimed','in_progress','completed','cancelled'];
@@ -205,6 +236,8 @@ const paramsForLoad = () => {
   if (assignedToMe.value) params.assignedToMe = 1;
   if (open.value) params.open = 1;
   if (statusFilter.value) params.status = statusFilter.value;
+  // Send type to API if supported (harmless if ignored)
+  if (typeFilter.value) params.purchaseType = typeFilter.value;
   return params;
 };
 
@@ -224,7 +257,7 @@ const createRS = async () => {
   creating.value = true; error.value = '';
   try {
     const rs = await api.post('/runsheets', { title: 'Untitled', status: 'draft' });
-    location.href = `/runsheets/${rs._id}`;
+    router.push({ name: 'runsheet-edit', params: { id: rs._id } });
   } catch (e) {
     error.value = e?.response?.data?.error || 'Failed to create runsheet';
   } finally {
@@ -278,8 +311,11 @@ const ensureDetails = async (r) => {
 
 const filteredList = computed(() => {
   const term = q.value.trim().toLowerCase();
-  if (!term) return list.value;
-  return list.value.filter(r => (r.title || '').toLowerCase().includes(term));
+  return (list.value || []).filter((r) => {
+    const titleOk = !term || (r.title || '').toLowerCase().includes(term);
+    const typeOk = !typeFilter.value || (r.purchaseType || '').toLowerCase() === typeFilter.value;
+    return titleOk && typeOk;
+  });
 });
 
 const shortDate = (d) => {
@@ -294,7 +330,8 @@ onMounted(async () => {
   await load();
 });
 
-watch([mine, assignedToMe, open, statusFilter], load);
+// Reload when server-backed filters change
+watch([mine, assignedToMe, open, statusFilter, typeFilter], load);
 
 /* ---------- Assignment UX + actions ---------- */
 const assignOpenId = ref('');
@@ -369,6 +406,7 @@ const release = async (r) => {
 };
 </script>
 
+
 <style scoped>
 /* Layout shells (keep light; assume global app styles exist) */
 .container { max-width: 1100px; margin: 0 auto; padding: 16px; }
@@ -429,6 +467,7 @@ const release = async (r) => {
 /* Empty state */
 .empty { text-align: center; color: #6b7280; padding: 24px; }
 </style>
+
 
   
   

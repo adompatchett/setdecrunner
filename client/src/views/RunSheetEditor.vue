@@ -52,11 +52,12 @@
           <div class="field">
             <div class="label">Purchase Type</div>
             <label class="radio">
-              <input type="radio" value="purchase" v-model="rs.purchaseType" /> Purchase
+            -   <input type="radio" value="purchase" v-model="rs.purchaseType" @change="onPurchaseTypeChanged" /> Purchase
             </label>
             <label class="radio">
-              <input type="radio" value="rental" v-model="rs.purchaseType" /> Rental
+            +  <input type="radio" value="rental" v-model="rs.purchaseType" @change="onPurchaseTypeChanged" /> Rental
             </label>
+
           </div>
         </div>
         <p class="muted">
@@ -110,6 +111,108 @@
           <button class="pill" v-if="rs.set" @click="clearSet">Clear Set</button>
         </div>
       </section>
+
+      <!-- ================= Supplier Section ================= -->
+<section class="panel supplier-block">
+  <div class="row">
+    <h3 class="subtitle">Supplier</h3>
+  </div>
+
+  <!-- Selected supplier summary -->
+  <div v-if="selectedSupplier" class="supplier-summary">
+    <div class="supplier-card">
+      <div class="supplier-card__left">
+        <div class="supplier-card__title">
+          <strong>{{ selectedSupplier.name }}</strong>
+        </div>
+        <div class="supplier-card__meta">
+          <span v-if="selectedSupplier.address">{{ selectedSupplier.address }}</span>
+          <span v-if="selectedSupplier.phone">• {{ selectedSupplier.phone }}</span>
+          <span v-if="selectedSupplier.contactName">• {{ selectedSupplier.contactName }}</span>
+          <span v-if="selectedSupplier.hours">• {{ selectedSupplier.hours }}</span>
+        </div>
+      </div>
+      <div class="supplier-card__actions">
+        <button :disabled="saving" class="btn" @click="startChangeSupplier">Change</button>
+        <button :disabled="saving" class="btn btn--ghost" @click="clearSupplier">Clear</button>
+      </div>
+    </div>
+    <div class="muted" v-if="saving" style="margin-top:.25rem;">Saving…</div>
+  </div>
+
+  <!-- Picker / Creator -->
+  <div v-else class="supplier-picker">
+    <!-- Search existing -->
+    <div class="supplier-search">
+      <label for="supplier-search" class="label">Search suppliers</label>
+      <div class="supplier-search__row">
+        <input
+          id="supplier-search"
+          v-model="search"
+          type="text"
+          placeholder="Type a name, address, phone…"
+          @input="debouncedFetchSuppliers()"
+          class="input"
+        />
+        <button class="btn" @click="fetchSuppliers" :disabled="searching">Search</button>
+      </div>
+      <div class="muted" v-if="searching">Searching…</div>
+      <div class="error" v-if="listError">{{ listError }}</div>
+    </div>
+
+    <div v-if="suppliers.length" class="supplier-results">
+      <div class="supplier-results__heading">Results</div>
+      <ul class="supplier-list">
+        <li v-for="s in suppliers" :key="s._id" class="supplier-item">
+          <div class="supplier-item__title"><strong>{{ s.name }}</strong></div>
+          <div class="supplier-item__meta">
+            <span v-if="s.address">{{ s.address }}</span>
+            <span v-if="s.phone">• {{ s.phone }}</span>
+            <span v-if="s.contactName">• {{ s.contactName }}</span>
+            <span v-if="s.hours">• {{ s.hours }}</span>
+          </div>
+          <div class="supplier-item__actions">
+            <button :disabled="saving" class="btn btn--primary" @click="chooseSupplier(s)">Use this supplier</button>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <details class="supplier-create">
+      <summary class="supplier-create__summary">Create new supplier</summary>
+      <div class="supplier-create__form">
+        <div class="field">
+          <label class="label">Name *</label>
+          <input v-model="createForm.name" type="text" class="input" />
+        </div>
+        <div class="field">
+          <label class="label">Address *</label>
+          <input v-model="createForm.address" type="text" class="input" />
+        </div>
+        <div class="field">
+          <label class="label">Phone</label>
+          <input v-model="createForm.phone" type="text" class="input" />
+        </div>
+        <div class="field">
+          <label class="label">Contact Name</label>
+          <input v-model="createForm.contactName" type="text" class="input" />
+        </div>
+        <div class="field">
+          <label class="label">Hours</label>
+          <input v-model="createForm.hours" type="text" class="input" />
+        </div>
+
+        <div v-if="createError" class="error">{{ createError }}</div>
+
+        <div class="supplier-create__actions">
+          <button :disabled="creating || saving" class="btn btn--primary" @click="createSupplier">
+            {{ creating ? 'Creating…' : 'Create' }}
+          </button>
+        </div>
+      </div>
+    </details>
+  </div>
+</section>
 
       <!-- Primary Contact (People) – single-select checkbox -->
       <section class="panel">
@@ -302,11 +405,136 @@
 
     <div class="field">
       <label class="label">Cheque/Cash Rec By</label>
-      <input
-        v-model="rs.paymentReceivedBy"
-        placeholder="Name"
-        @change="savePurchase"
-      />
+      <input v-model="rs.receivedBy" placeholder="Name" @input="savePurchaseDebounced" @change="savePurchase" />
+    </div>
+  </div>
+</section>
+
+<!-- ================= Runsheet Items ================= -->
+<section class="panel">
+  <div class="row">
+    <h3 class="subtitle">Items</h3>
+    <div class="muted">Attach existing catalog items or create a new one — photos included.</div>
+  </div>
+
+  <!-- Search & attach existing -->
+  <div class="row row--tight">
+    <input v-model="itemSearch" placeholder="Search items…" class="input" />
+    <button type="button" class="btn" @click.stop.prevent="searchItems" :disabled="searchingItems">
+      {{ searchingItems ? 'Searching…' : 'Search' }}
+    </button>
+    <span v-if="itemListError" class="error">{{ itemListError }}</span>
+  </div>
+
+  <div class="pillbar">
+    <button
+      v-for="it in itemResults"
+      :key="it._id"
+      class="pill"
+      type="button"
+      @click.stop.prevent="addItemToRunsheet(it)"
+    >
+      + {{ it.name }}
+    </button>
+  </div>
+
+  <!-- Create & add new item (with image) -->
+  <details class="mt-1">
+    <summary class="link">Create & add a new item</summary>
+    <div class="row row--wrap" style="gap:.75rem;margin-top:.5rem;">
+      <div class="field">
+        <label class="label">Name *</label>
+        <input v-model="newItem.name" class="input" placeholder="e.g. Brass Lamp" />
+      </div>
+
+      <div class="field" style="min-width:280px;flex:1;">
+        <label class="label">Description (optional)</label>
+        <input v-model="newItem.description" class="input" placeholder="Short description" />
+      </div>
+
+      <div class="field">
+        <label class="label">Quantity</label>
+        <input type="number" min="1" v-model.number="newItem.qty" class="input input--qty" />
+      </div>
+
+      <div class="field">
+        <label class="label">Photo</label>
+        <input type="file" accept="image/*" @change="onNewItemImage($event)" />
+        <div v-if="newItem.preview" class="thumbs thumbs--small" style="margin-top:6px;">
+          <img :src="newItem.preview" class="thumb__img thumb__img--sm" />
+        </div>
+      </div>
+
+      <div class="field" style="align-self:flex-end;">
+        <button
+          type="button"
+          class="btn btn--primary"
+          :disabled="creatingItem || !newItem.name.trim()"
+          @click.stop.prevent="createAndAddItem()"
+        >
+          {{ creatingItem ? 'Creating…' : 'Create & Add' }}
+        </button>
+        <span v-if="createItemError" class="error" style="margin-left:.5rem;">{{ createItemError }}</span>
+      </div>
+    </div>
+  </details>
+
+  <!-- Attached items list -->
+  <div class="items mt-2">
+    <div v-if="!attachedItems.length" class="empty muted">No items attached yet.</div>
+
+    <div
+  v-for="(ai, i) in attachedItems"
+  :key="ai._id ? `id:${ai._id}` : `adhoc:${ai.name || 'unnamed'}:${i}`"
+  class="item card"
+>
+      <div class="item__row">
+        <div class="item__name">
+          {{ ai.name || 'Item' }}
+          <span class="muted" v-if="!ai._id">(ad-hoc)</span>
+        </div>
+        <div class="qty">
+          <label class="muted">Qty</label>
+          <input
+            type="number"
+            min="0"
+            class="input input--qty"
+            :value="ai.quantity"
+            @change="e => updateAttachedQuantity(ai, e.target.value)"
+            :disabled="!ai._id"
+            title="Set quantity (only for catalog items)"
+          />
+          <button
+            v-if="ai._id"
+            type="button"
+            class="btn btn--danger"
+            @click.stop.prevent="removeAttachedItem(ai._id)"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+
+      <div class="row row--tight">
+        <span class="muted">Photos</span>
+        <input
+          v-if="ai._id"
+          type="file"
+          multiple
+          accept="image/*"
+          @change="(e) => uploadItemPhotos(ai, e)"
+        />
+      </div>
+
+      <div class="thumbs thumbs--small" v-if="ai.photos && ai.photos.length">
+        <img
+          v-for="p in ai.photos"
+          :key="p"
+          :src="imageUrl(p)"
+          class="thumb__img thumb__img--sm"
+        />
+      </div>
+      <div v-else class="muted">No photos yet.</div>
     </div>
   </div>
 </section>
@@ -353,57 +581,108 @@
           ></textarea>
 
           <!-- Items at stop -->
-          <div class="stop__items">
-            <div class="row row--tight">
-              <h4 class="mini-title">Items at this stop</h4>
-              <input v-model="itemSearch" placeholder="Search items…" class="input" />
-              <button type="button" class="btn" @click.stop.prevent="searchItems">Search</button>
-            </div>
+          <!-- Items at stop -->
+<div class="stop__items">
+  <!-- Search existing -->
+  <div class="row row--tight">
+    <h4 class="mini-title">Items at this stop</h4>
+    <input v-model="itemSearch" placeholder="Search items…" class="input" />
+    <button type="button" class="btn" @click.stop.prevent="searchItems" :disabled="searchingItems">
+      {{ searchingItems ? 'Searching…' : 'Search' }}
+    </button>
+    <span v-if="itemListError" class="error">{{ itemListError }}</span>
+  </div>
 
-            <div class="pillbar">
-              <button
-                v-for="it in itemResults"
-                :key="it._id"
-                class="pill"
-                type="button"
-                @click.stop.prevent="addItemToStop(s._id, it)"
-              >+ {{ it.name }}</button>
-            </div>
+  <div class="pillbar">
+    <button
+      v-for="it in itemResults"
+      :key="it._id"
+      class="pill"
+      type="button"
+      @click.stop.prevent="addItemToStop(s._id, it._id)"
+    >
+      + {{ it.name }}
+    </button>
+  </div>
 
-            <div class="items">
-              <div v-for="(ri, idx) in s.items" :key="idx" class="item card">
-                <div class="item__row">
-                  <div class="item__name">{{ ri.name }}</div>
-                  <div class="qty">
-                    <label class="muted">Qty</label>
-                    <input
-                      type="number"
-                      v-model.number="ri.quantity"
-                      min="0"
-                      class="input input--qty"
-                      @change="save"
-                    />
-                    <button type="button" class="btn btn--danger" @click.stop.prevent="removeRunItem(s._id, idx)">Remove</button>
-                  </div>
-                </div>
+  <!-- Create new item (with image) -->
+  <details class="mt-1">
+    <summary class="link">Create & add a new item</summary>
+    <div class="row row--wrap" style="gap:.75rem;margin-top:.5rem;">
+      <div class="field">
+        <label class="label">Name *</label>
+        <input v-model="newItem.name" class="input" placeholder="eg. Brass Lamp" />
+      </div>
 
-                <textarea v-model="ri.notes" class="textarea" rows="2" placeholder="Notes…" @change="save"></textarea>
+      <div class="field" style="min-width:280px;flex:1;">
+        <label class="label">Description (optional)</label>
+        <input v-model="newItem.description" class="input" placeholder="Short description" />
+      </div>
 
-                <div class="row row--tight">
-                  <span class="muted">Photos</span>
-                  <input type="file" multiple @change="(e)=>uploadRunItemPhotos(s._id, idx, e)" />
-                </div>
-                <div class="thumbs thumbs--small">
-                  <img
-                    v-for="p in ri.photos || []"
-                    :key="p"
-                    :src="imageUrl(p)"
-                    class="thumb__img thumb__img--sm"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
+      <div class="field">
+        <label class="label">Quantity</label>
+        <input type="number" min="1" v-model.number="newItem.qty" class="input input--qty" />
+      </div>
+
+      <div class="field">
+        <label class="label">Image</label>
+        <input type="file" accept="image/*" @change="onNewItemImage($event)" />
+        <div v-if="newItem.preview" class="thumbs thumbs--small" style="margin-top:6px;">
+          <img :src="newItem.preview" class="thumb__img thumb__img--sm" />
+        </div>
+      </div>
+
+      <div class="field" style="align-self:flex-end;">
+        <button
+          type="button"
+          class="btn btn--primary"
+          :disabled="creatingItem || !newItem.name.trim()"
+          @click.stop.prevent="createAndAddItem(s._id)"
+        >
+          {{ creatingItem ? 'Creating…' : 'Create & Add' }}
+        </button>
+        <span v-if="createItemError" class="error" style="margin-left:.5rem;">{{ createItemError }}</span>
+      </div>
+    </div>
+  </details>
+
+  <!-- Current items at this stop -->
+  <div class="items">
+    <div v-for="(ri, idx) in s.items" :key="idx" class="item card">
+      <div class="item__row">
+        <div class="item__name">{{ ri.name }}</div>
+        <div class="qty">
+          <label class="muted">Qty</label>
+          <input
+            type="number"
+            v-model.number="ri.quantity"
+            min="0"
+            class="input input--qty"
+            @change="save"
+          />
+          <button type="button" class="btn btn--danger" @click.stop.prevent="removeRunItem(s._id, idx)">Remove</button>
+        </div>
+      </div>
+
+      <textarea v-model="ri.notes" class="textarea" rows="2" placeholder="Notes…" @change="save"></textarea>
+
+      <div class="row row--tight">
+        <span class="muted">Photos</span>
+        <input type="file" multiple @change="(e)=>uploadRunItemPhotos(s._id, idx, e)" />
+      </div>
+
+      <div class="thumbs thumbs--small">
+        <img
+          v-for="p in ri.photos || []"
+          :key="p"
+          :src="imageUrl(p)"
+          class="thumb__img thumb__img--sm"
+        />
+      </div>
+    </div>
+  </div>
+</div>
+
         </div>
       </section>
 
@@ -429,7 +708,7 @@
       <label class="radio">
         <input
           type="radio"
-          value="delivery"
+          value="delivering"
           v-model="rs.pdType"
           @change="savePickupDelivering"
         /> Delivering
@@ -717,7 +996,7 @@
 
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, watch, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import NavBar from '../components/NavBar.vue';
 import PlaceSearch from '../components/PlaceSearch.vue';
@@ -736,189 +1015,424 @@ let sigDrawing = false;
 let sigLastX = 0;
 let sigLastY = 0;
 const sigSaving = ref(false);
+
 const rs = ref({
   title: '',
   status: 'draft',
   date: null,
+
   photos: [],
   receipts: [],
   stops: [],
+
+  // runsheet-level items
+  items: [],
+
   purchaseType: 'purchase',
   pickupDate: null,
   returnDate: null,
+
   takeTo: null,
   set: null,
 
   // single-select contact (Person _id)
   contact: null,
 
+  // Supplier (separate from takeTo)
+  supplier: null,
+
   // Post-run destination
-  postLocation: null,   // 'hold_on_truck' | 'office' | 'setdec_storage' | 'address_below' | null
-  postAddress: '',      // for address_below
-  postPlace: null,      // Place _id (optional helper for address_below)
-   // --- Purchase / Payment (NEW) ---
+  postLocation: null,
+  postAddress: '',
+  postPlace: null,
+
+  // Purchase / Payment
   getInvoice: false,
   getDeposit: false,
   paid: false,
   chequeNumber: '',
   poNumber: '',
   amount: 0,
-  paymentReceivedBy: '',
-    // Pickup/Delivering (NEW)
-    pdType: null,               // 'pickup' | 'delivery' | null
-    pdPaymentMethod: null,      // 'cheque' | 'cash' | null
-    pdDate: null,               // ISO string
-    pdTime: '',                 // 'HH:MM'
-    pdInstructions: '',
-    completedBy: null,          // User _id or populated object
-    dateFinished: null,         // ISO string
-    rdType: null,           // 'pu' | 'take' | null
-    rdCheque: false,        // boolean
-    rdDate: null,           // ISO string
-    rdTime: '',             // 'HH:MM'
-    rdInstructions: '',     // string
-    rdCompletedBy: null,    // User _id or populated user
-    rdCompletedOn: null,    // ISO string (date only)
-  });
-  rs.value ??= {};
-rs.value.qcItemsGood ??= null;     // boolean or null
-rs.value.qcSignatureData ??= '';   // data URL string
+  receivedBy: '',
+
+  // Pickup/Delivering
+  pdType: null,
+  pdPaymentMethod: null,
+  pdDate: null,
+  pdTime: '',
+  pdInstructions: '',
+  completedBy: null,      // legacy UI
+  dateFinished: null,     // legacy UI
+
+  // Return / Drop Off
+  rdType: null,
+  rdCheque: false,
+  rdDate: null,
+  rdTime: '',
+  rdInstructions: '',
+  rdCompletedBy: null,
+  rdCompletedOn: null,
+
+  // QC
+  qcItemsGood: null,
+  qcSignatureData: ''
+});
 
 const saving = ref(false);
 const savedAt = ref('');
 const error = ref('');
+const loading = ref(false);
 
-// People (for single-select contact)
+const stamp = () => { savedAt.value = new Date().toLocaleTimeString(); };
+const logout = () => auth.logout();
+
+/* ===================== People (single-select contact) ===================== */
 const people = ref([]);
 const peopleError = ref('');
 const selectedPersonId = ref(null);
 const contactSaving = ref(false);
 
-// API base for images
-const apiBase = (import.meta.env.VITE_API_BASE || 'http://localhost:4000/api');
-const imageUrl = (p) => apiBase.replace('/api','') + p;
-const logout = () => auth.logout();
-
-// Navigation helpers
-const goToRunsheets = () => {
-  router.push({ path: '/runsheets' }).catch(() => {
-    const base = (router?.options?.history?.base || '').replace(/\/$/, '');
-    location.assign(`${base}/runsheets`);
-  });
-};
-const goToRunsheetView = () => {
-  const id = rs.value?._id;
-  if (!id) return;
-  router.push({ name: 'runsheet-view', params: { id } })
-    .catch(() => router.push(`/runsheets/${id}`))
-    .catch(() => {});
+const loadPeople = async () => {
+  try { people.value = await api.get('/people', { limit: 100 }); }
+  catch (e) { peopleError.value = e?.response?.data?.error || 'Failed to load people'; }
 };
 
-// Date binders
+const saveContactSelection = async () => {
+  if (!rs.value || !rs.value._id) return;
+  contactSaving.value = true;
+  const wanted = selectedPersonId.value;
+  try {
+    await api.patch(`/runsheets/${rs.value._id}`, { contact: wanted || null });
+    rs.value.contact = wanted || null;
+    stamp();
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to save contact';
+    selectedPersonId.value = (rs.value && rs.value.contact) || null;
+  } finally {
+    contactSaving.value = false;
+  }
+};
+
+/* ====================== Post-Run Destination helpers ====================== */
+// Label for the selected postPlace (when address_below)
+const postPlaceLabel = computed(() => {
+  const p = rs.value?.postPlace;
+  if (!p) return '';
+  if (typeof p === 'string') return `#${p}`;
+  const extra = [p.address].filter(Boolean).join(' — ');
+  return extra ? `${p.name} — ${extra}` : p.name;
+});
+
+// Toggle the one-of checkboxes (radio-like behavior)
+async function togglePost(key, ev) {
+  if (!rs.value?._id) return;
+  const willCheck = !!ev?.target?.checked;
+
+  // If user checks this key, select it; if they uncheck the same key, clear it.
+  const next = willCheck ? key : (rs.value.postLocation === key ? null : rs.value.postLocation);
+
+  // Update local model first
+  rs.value.postLocation = next;
+
+  // If switching away from 'address_below', clear address/place
+  if (next !== 'address_below') {
+    rs.value.postPlace = null;
+    rs.value.postAddress = '';
+  }
+
+  // Keep the clicked checkbox visually in sync
+  if (ev?.target) ev.target.checked = next === key;
+
+  try {
+    await api.patch(`/runsheets/${rs.value._id}`, {
+      postLocation: next,
+      postAddress: next === 'address_below' ? (rs.value.postAddress || '') : '',
+      postPlace: next === 'address_below'
+        ? (rs.value.postPlace?._id ?? rs.value.postPlace ?? null)
+        : null,
+    });
+    stamp();
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to save post-run destination';
+  }
+}
+
+// Choosing a place when 'address_below' is active (from <PlaceSearch />)
+async function choosePostPlace(place) {
+  if (!rs.value?._id) return;
+  rs.value.postLocation = 'address_below';
+  rs.value.postPlace = place;
+  if (!rs.value.postAddress?.trim() && place?.address) {
+    rs.value.postAddress = place.address;
+  }
+  try {
+    await api.patch(`/runsheets/${rs.value._id}`, {
+      postLocation: 'address_below',
+      postPlace: place?._id ?? place,
+      postAddress: rs.value.postAddress || '',
+    });
+    stamp();
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to set post place';
+  }
+}
+
+// Clear the chosen place (keeps postLocation as address_below so user can type an address)
+async function clearPostPlace() {
+  if (!rs.value?._id) return;
+  rs.value.postPlace = null;
+  try {
+    await api.patch(`/runsheets/${rs.value._id}`, { postPlace: null });
+    stamp();
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to clear post place';
+  }
+}
+
+// Persist textarea changes to the address (only relevant for address_below)
+async function savePostLocation() {
+  if (!rs.value?._id) return;
+  try {
+    await api.patch(`/runsheets/${rs.value._id}`, {
+      postLocation: rs.value.postLocation ?? null,
+      postAddress: rs.value.postLocation === 'address_below' ? (rs.value.postAddress || '') : '',
+      postPlace: rs.value.postLocation === 'address_below'
+        ? (rs.value.postPlace?._id ?? rs.value.postPlace ?? null)
+        : null,
+    });
+    stamp();
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to save address';
+  }
+}
+
+const onTogglePerson = (p, ev) => {
+  const willCheck = ev.target.checked;
+  selectedPersonId.value = willCheck ? p._id : null;
+  ev.target.checked = willCheck;
+  saveContactSelection();
+};
+const clearContact = () => { selectedPersonId.value = null; saveContactSelection(); };
+
+const selectedPersonLabel = computed(() => {
+  const id = selectedPersonId.value;
+  if (!id) return '';
+  const p = people.value.find(x => x._id === id);
+  if (!p) return `#${id}`;
+  const extra = [p.email, p.phone].filter(Boolean).join(' · ');
+  return extra ? `${p.name} — ${extra}` : p.name;
+});
+
+/* ============================== Dates ============================== */
 const dateStr = computed({
-  get() {
-    if (!rs.value?.date) return '';
-    const d = new Date(rs.value.date);
-    return isNaN(d) ? '' : d.toISOString().slice(0,10);
-  },
-  set(v) { rs.value.date = v ? new Date(v).toISOString() : null; }
+  get() { const d = rs.value && rs.value.date && new Date(rs.value.date); return d && !isNaN(d) ? d.toISOString().slice(0,10) : ''; },
+  set(v) { if (rs.value) rs.value.date = v ? new Date(v).toISOString() : null; }
 });
 const pickupStr = computed({
-  get() {
-    if (!rs.value?.pickupDate) return '';
-    const d = new Date(rs.value.pickupDate);
-    return isNaN(d) ? '' : d.toISOString().slice(0,10);
-  },
-  set(v) { rs.value.pickupDate = v ? new Date(v).toISOString() : null; }
+  get() { const d = rs.value && rs.value.pickupDate && new Date(rs.value.pickupDate); return d && !isNaN(d) ? d.toISOString().slice(0,10) : ''; },
+  set(v) { if (rs.value) rs.value.pickupDate = v ? new Date(v).toISOString() : null; }
 });
 const returnStr = computed({
-  get() {
-    if (!rs.value?.returnDate) return '';
-    const d = new Date(rs.value.returnDate);
-    return isNaN(d) ? '' : d.toISOString().slice(0,10);
-  },
-  set(v) { rs.value.returnDate = v ? new Date(v).toISOString() : null; }
+  get() { const d = rs.value && rs.value.returnDate && new Date(rs.value.returnDate); return d && !isNaN(d) ? d.toISOString().slice(0,10) : ''; },
+  set(v) { if (rs.value) rs.value.returnDate = v ? new Date(v).toISOString() : null; }
+});
+watch(() => rs.value && rs.value.pickupDate, (newPd) => {
+  if (!rs.value || rs.value.purchaseType !== 'rental' || !newPd) return;
+  if (!rs.value.returnDate || new Date(rs.value.returnDate) < new Date(newPd)) {
+    const d = new Date(newPd); d.setDate(d.getDate() + 1);
+    rs.value.returnDate = d.toISOString();
+  }
 });
 
-const stamp = () => { savedAt.value = new Date().toLocaleTimeString(); };
+// Upload photos to a catalog Item, then refresh attached list
+async function uploadItemPhotos(item, e) {
+  try {
+    const fd = new FormData();
+    [...(e.target?.files || [])].forEach(f => fd.append('photos', f));
+    await api.post(`/items/${item._id}/photos`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    await refreshAttachedItems();
+  } catch (err) {
+    itemListError.value = err?.response?.data?.error || 'Failed to upload item photos';
+  } finally {
+    if (e?.target) e.target.value = '';
+  }
+}
 
-// ---------- Load ----------
+// Update quantity of an attached (catalog) item
+async function updateAttachedQuantity(ai, val) {
+  const q = Number(val);
+  if (!ai._id || !Number.isFinite(q) || q < 0) return;
+  try {
+    const id = rs.value && rs.value._id;
+    await api.patch(`/runsheets/${id}/items/${ai._id}`, { quantity: q });
+    await refreshAttachedItems();
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to update quantity';
+  }
+}
+
+// Create a new Item (JSON), optionally upload a photo, then attach to runsheet
+async function createAndAddItem() {
+  createItemError.value = '';
+  if (!newItem.value.name.trim()) { createItemError.value = 'Name is required'; return; }
+  creatingItem.value = true;
+  try {
+    // 1) Create item (JSON, not multipart)
+    const body = {
+      name: newItem.value.name.trim(),
+      ...(newItem.value.description?.trim() ? { description: newItem.value.description.trim() } : {})
+    };
+    const created = await api.post('/items', body);
+
+    // 2) If a photo was chosen, upload to /items/:id/photos (field "photos")
+    if (newItem.value.file) {
+      const fd = new FormData();
+      fd.append('photos', newItem.value.file);
+      await api.post(`/items/${created._id}/photos`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+    }
+
+    // 3) Attach to this runsheet
+    await addItemToRunsheet(created._id, newItem.value.qty || 1);
+
+    // 4) Keep search results fresh, clear form, and refresh attached items (to see photos)
+    itemResults.value.unshift(created);
+    newItem.value = { name: '', description: '', qty: 1, file: null, preview: '' };
+    await refreshAttachedItems();
+  } catch (e) {
+    createItemError.value = e?.response?.data?.error || 'Failed to create item';
+  } finally {
+    creatingItem.value = false;
+  }
+}
+
+const onPurchaseTypeChanged = async (ev) => {
+  const current = rs.value && rs.value.purchaseType;
+  const val = (ev && ev.target && ev.target.value || current) === 'rental' ? 'rental' : 'purchase';
+  if (!rs.value) return;
+  rs.value.purchaseType = val;
+  if (val === 'rental') {
+    const todayISO = new Date().toISOString();
+    if (!rs.value.pickupDate) rs.value.pickupDate = todayISO;
+    if (!rs.value.returnDate || new Date(rs.value.returnDate) < new Date(rs.value.pickupDate)) {
+      const d = new Date(rs.value.pickupDate); d.setDate(d.getDate() + 1);
+      rs.value.returnDate = d.toISOString();
+    }
+  }
+  try {
+    await api.patch(`/runsheets/${rs.value._id}`, {
+      purchaseType: rs.value.purchaseType,
+      ...(rs.value.purchaseType === 'rental' ? {
+        pickupDate: rs.value.pickupDate,
+        returnDate: rs.value.returnDate
+      } : {})
+    });
+    stamp();
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to save purchase type';
+  }
+};
+
+/* =========== Users search (shared by PD + RD computed below) =========== */
+const cbSearch = ref('');
+const cbResults = ref([]);
+const searchCompletedUsers = async () => {
+  try { cbResults.value = await api.get('/users', { q: cbSearch.value }); }
+  catch (e) { error.value = e?.response?.data?.error || 'Failed to search users'; }
+};
+const selectCompletedBy = async (u) => { if (!rs.value) return; rs.value.completedBy = u; await savePickupDelivering(); };
+const clearCompletedBy = async () => { if (!rs.value) return; rs.value.completedBy = null; await savePickupDelivering(); };
+const completedByLabel = computed(() => {
+  const v = rs.value && rs.value.completedBy;
+  if (!v) return '';
+  if (typeof v === 'string') { const hit = cbResults.value.find(x => x._id === v); return hit ? (hit.name || hit.email || hit._id) : `#${v}`; }
+  return v.name || v.email || v._id || '';
+});
+
+/* ============================== Load ============================== */
+const hydratePostPlace = async () => {
+  if (rs.value && rs.value.postPlace && typeof rs.value.postPlace === 'string') {
+    try { rs.value.postPlace = await api.get(`/places/${rs.value.postPlace}`); } catch (e) {}
+  }
+};
+
 const load = async () => {
   try {
     rs.value = await api.get(`/runsheets/${route.params.id}`);
 
-    // Legacy-safe defaults
-    rs.value.purchaseType ??= 'purchase';
-    rs.value.pickupDate ??= null;
-    rs.value.returnDate ??= null;
-    rs.value.takeTo ??= null;
-    rs.value.set ??= null;
-    rs.value.photos ??= [];
-    rs.value.receipts ??= [];
-    rs.value.postLocation ??= null;
-    rs.value.postAddress ??= '';
-    rs.value.postPlace ??= null;
-    rs.value.pdType ??= null;
-    rs.value.pdPaymentMethod ??= null;
-    rs.value.pdDate ??= null;
-    rs.value.pdTime ??= '';
-    rs.value.pdInstructions ??= '';
-    rs.value.completedBy ??= null;
-    rs.value.dateFinished ??= null;
+    // Defaults
+    if (rs.value.purchaseType == null) rs.value.purchaseType = 'purchase';
+    if (rs.value.pickupDate == null) rs.value.pickupDate = null;
+    if (rs.value.returnDate == null) rs.value.returnDate = null;
 
-    // Purchase / Payment defaults
-rs.value.getInvoice ??= false;
-rs.value.getDeposit ??= false;
-rs.value.paid ??= false;
-rs.value.chequeNumber ??= '';
-rs.value.poNumber ??= '';
-rs.value.amount = Number.isFinite(+rs.value.amount) ? +rs.value.amount : 0;
-rs.value.paymentReceivedBy ??= '';
+    if (rs.value.takeTo == null) rs.value.takeTo = null;
+    if (rs.value.set == null) rs.value.set = null;
 
-rs.value.rdType ??= null;
-rs.value.rdCheque = !!rs.value.rdCheque;
-rs.value.rdDate ??= null;
-rs.value.rdTime ??= '';
-rs.value.rdInstructions ??= '';
-rs.value.rdCompletedBy ??= null;
-rs.value.rdCompletedOn ??= null;
+    if (!Array.isArray(rs.value.photos)) rs.value.photos = rs.value.photos || [];
+    if (!Array.isArray(rs.value.receipts)) rs.value.receipts = rs.value.receipts || [];
 
-    // Hydrate set if needed
+    if (!Array.isArray(rs.value.items)) rs.value.items = rs.value.items || [];
+
+    if (rs.value.postLocation == null) rs.value.postLocation = null;
+    if (rs.value.postAddress == null) rs.value.postAddress = '';
+    if (rs.value.postPlace == null) rs.value.postPlace = null;
+
+    if (rs.value.pdType == null) rs.value.pdType = null;
+    if (rs.value.pdPaymentMethod == null) rs.value.pdPaymentMethod = null;
+    if (rs.value.pdDate == null) rs.value.pdDate = null;
+    if (rs.value.pdTime == null) rs.value.pdTime = '';
+    if (rs.value.pdInstructions == null) rs.value.pdInstructions = '';
+    if (rs.value.completedBy == null) rs.value.completedBy = null; // legacy UI
+    if (rs.value.dateFinished == null) rs.value.dateFinished = null; // legacy UI
+
+    if (rs.value.getInvoice == null) rs.value.getInvoice = false;
+    if (rs.value.getDeposit == null) rs.value.getDeposit = false;
+    if (rs.value.paid == null) rs.value.paid = false;
+    if (rs.value.chequeNumber == null) rs.value.chequeNumber = '';
+    if (rs.value.poNumber == null) rs.value.poNumber = '';
+    rs.value.amount = Number.isFinite(+rs.value.amount) ? +rs.value.amount : 0;
+    if (rs.value.receivedBy == null) rs.value.receivedBy = '';
+
+    if (rs.value.rdType == null) rs.value.rdType = null;
+    rs.value.rdCheque = !!rs.value.rdCheque;
+    if (rs.value.rdDate == null) rs.value.rdDate = null;
+    if (rs.value.rdTime == null) rs.value.rdTime = '';
+    if (rs.value.rdInstructions == null) rs.value.rdInstructions = '';
+    if (rs.value.rdCompletedBy == null) rs.value.rdCompletedBy = null;
+    if (rs.value.rdCompletedOn == null) rs.value.rdCompletedOn = null;
+
+    if (rs.value.qcItemsGood == null) rs.value.qcItemsGood = null;
+    if (rs.value.qcSignatureData == null) rs.value.qcSignatureData = '';
+
+    if (rs.value.supplier == null) rs.value.supplier = null;
+
     if (rs.value.set && typeof rs.value.set === 'string') {
-      try {
-        const setObj = await api.get(`/sets/${rs.value.set}`);
-        if (setObj?._id) rs.value.set = setObj;
-      } catch { /* ignore */ }
+      try { rs.value.set = await api.get(`/sets/${rs.value.set}`); } catch (e) {}
     }
 
-    // Existing saved contact
-    if (rs.value.contact) {
-      selectedPersonId.value = typeof rs.value.contact === 'string'
-        ? rs.value.contact
-        : rs.value.contact?._id || null;
-    } else {
-      selectedPersonId.value = null;
-    }
+    selectedPersonId.value = rs.value.contact
+      ? (typeof rs.value.contact === 'string' ? rs.value.contact : (rs.value.contact && rs.value.contact._id) || null)
+      : null;
 
     await hydratePostPlace();
+    await refreshAttachedItems(); // hydrate runsheet-level items
   } catch (e) {
     error.value = e?.response?.data?.error || 'Failed to load runsheet';
   }
-
-  rs.value.qcItemsGood ??= null;
-rs.value.qcSignatureData ??= '';
-
 };
 
+/* ============================== QC / Signature ============================== */
 const setItemsGood = async (val) => {
-  if (!rs.value?._id) return;
+  if (!rs.value || !rs.value._id) return;
   itemsGoodSaving.value = true;
   try {
     rs.value.qcItemsGood = !!val;
     await api.patch(`/runsheets/${rs.value._id}`, { qcItemsGood: rs.value.qcItemsGood });
     stamp();
   } catch (e) {
-    // if server rejects, revert to null
     rs.value.qcItemsGood = null;
     error.value = e?.response?.data?.error || 'Failed to save condition';
   } finally {
@@ -926,7 +1440,6 @@ const setItemsGood = async (val) => {
   }
 };
 
-// ---------- Signature pad helpers ----------
 const getSigPos = (e) => {
   const rect = sigCanvas.value.getBoundingClientRect();
   const isTouch = e.touches && e.touches[0];
@@ -936,31 +1449,15 @@ const getSigPos = (e) => {
   const y = (clientY - rect.top) * (sigCanvas.value.height / rect.height);
   return { x, y };
 };
-
-const sigStart = (e) => {
-  if (!sigCtx) return;
-  sigDrawing = true;
-  const { x, y } = getSigPos(e);
-  sigLastX = x; sigLastY = y;
-};
-
+const sigStart = (e) => { if (!sigCtx) return; sigDrawing = true; const { x, y } = getSigPos(e); sigLastX = x; sigLastY = y; };
 const sigMove = (e) => {
   if (!sigDrawing || !sigCtx) return;
   const { x, y } = getSigPos(e);
-  sigCtx.beginPath();
-  sigCtx.moveTo(sigLastX, sigLastY);
-  sigCtx.lineTo(x, y);
-  sigCtx.stroke();
+  sigCtx.beginPath(); sigCtx.moveTo(sigLastX, sigLastY); sigCtx.lineTo(x, y); sigCtx.stroke();
   sigLastX = x; sigLastY = y;
 };
-
 const sigEnd = () => { sigDrawing = false; };
-
-const clearSignature = () => {
-  if (!sigCtx || !sigCanvas.value) return;
-  sigCtx.clearRect(0, 0, sigCanvas.value.width, sigCanvas.value.height);
-};
-
+const clearSignature = () => { if (sigCtx && sigCanvas.value) sigCtx.clearRect(0, 0, sigCanvas.value.width, sigCanvas.value.height); };
 const initSignatureCanvas = () => {
   if (!sigCanvas.value) return;
   const dpr = window.devicePixelRatio || 1;
@@ -975,17 +1472,10 @@ const initSignatureCanvas = () => {
   sigCtx.lineWidth = 2;
   sigCtx.strokeStyle = '#111';
 };
-
-// Optional: re-init on resize for crisp lines
 let sigResizeTimer = null;
-window.addEventListener('resize', () => {
-  clearTimeout(sigResizeTimer);
-  sigResizeTimer = setTimeout(initSignatureCanvas, 150);
-});
-
-// Save signature as a PNG data URL inside the runsheet
+window.addEventListener('resize', () => { clearTimeout(sigResizeTimer); sigResizeTimer = setTimeout(initSignatureCanvas, 150); });
 const saveSignature = async () => {
-  if (!rs.value?._id || !sigCanvas.value) return;
+  if (!rs.value || !rs.value._id || !sigCanvas.value) return;
   sigSaving.value = true;
   try {
     const dataUrl = sigCanvas.value.toDataURL('image/png');
@@ -994,48 +1484,23 @@ const saveSignature = async () => {
     stamp();
   } catch (e) {
     error.value = e?.response?.data?.error || 'Failed to save signature';
-  } finally {
-    sigSaving.value = false;
-  }
+  } finally { sigSaving.value = false; }
 };
 
+/* ============================== Return / Drop Off ============================== */
 const rdDateStr = computed({
-  get() {
-    if (!rs.value?.rdDate) return '';
-    const d = new Date(rs.value.rdDate);
-    return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
-  },
-  set(v) { rs.value.rdDate = v ? new Date(v).toISOString() : null; }
+  get() { const d = rs.value && rs.value.rdDate && new Date(rs.value.rdDate); return d && !isNaN(d) ? d.toISOString().slice(0,10) : ''; },
+  set(v) { if (rs.value) rs.value.rdDate = v ? new Date(v).toISOString() : null; }
 });
-
 const rdCompletedOnStr = computed({
-  get() {
-    if (!rs.value?.rdCompletedOn) return '';
-    const d = new Date(rs.value.rdCompletedOn);
-    return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
-  },
-  set(v) { rs.value.rdCompletedOn = v ? new Date(v).toISOString() : null; }
+  get() { const d = rs.value && rs.value.rdCompletedOn && new Date(rs.value.rdCompletedOn); return d && !isNaN(d) ? d.toISOString().slice(0,10) : ''; },
+  set(v) { if (rs.value) rs.value.rdCompletedOn = v ? new Date(v).toISOString() : null; }
 });
-
-const onToggleRdCheque = async (ev) => {
-  const v = !!ev.target.checked;
-  rs.value.rdCheque = v;
-  ev.target.checked = v; // avoid flicker
-  await saveReturnDropoff();
-};
-
-const selectRdCompletedBy = async (u) => {
-  rs.value.rdCompletedBy = u;
-  await saveReturnDropoff();
-};
-
-const clearRdCompletedBy = async () => {
-  rs.value.rdCompletedBy = null;
-  await saveReturnDropoff();
-};
-
+const onToggleRdCheque = async (ev) => { if (!rs.value) return; rs.value.rdCheque = !!ev.target.checked; ev.target.checked = rs.value.rdCheque; await saveReturnDropoff(); };
+const selectRdCompletedBy = async (u) => { if (!rs.value) return; rs.value.rdCompletedBy = u; await saveReturnDropoff(); };
+const clearRdCompletedBy = async () => { if (!rs.value) return; rs.value.rdCompletedBy = null; await saveReturnDropoff(); };
 const rdCompletedByLabel = computed(() => {
-  const v = rs.value.rdCompletedBy;
+  const v = rs.value && rs.value.rdCompletedBy;
   if (!v) return '';
   if (typeof v === 'string') {
     const hit = (cbResults.value || []).find(x => x._id === v);
@@ -1043,137 +1508,72 @@ const rdCompletedByLabel = computed(() => {
   }
   return v.name || v.email || v._id || '';
 });
-
-const pdDateStr = computed({
-  get() {
-    if (!rs.value?.pdDate) return '';
-    const d = new Date(rs.value.pdDate);
-    return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
-  },
-  set(v) { rs.value.pdDate = v ? new Date(v).toISOString() : null; }
-});
-
-const dateFinishedStr = computed({
-  get() {
-    if (!rs.value?.dateFinished) return '';
-    const d = new Date(rs.value.dateFinished);
-    return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
-  },
-  set(v) { rs.value.dateFinished = v ? new Date(v).toISOString() : null; }
-});
-
 const saveReturnDropoff = async () => {
-  if (!rs.value?._id) return;
+  if (!rs.value || !rs.value._id) return;
   try {
-    const payload = {
+    await api.patch(`/runsheets/${rs.value._id}`, {
       rdType: rs.value.rdType ?? null,
       rdCheque: !!rs.value.rdCheque,
       rdDate: rs.value.rdDate ?? null,
       rdTime: rs.value.rdTime || '',
       rdInstructions: rs.value.rdInstructions || '',
-      rdCompletedBy: rs.value.rdCompletedBy?._id ?? rs.value.rdCompletedBy ?? null,
+      rdCompletedBy: (rs.value.rdCompletedBy && rs.value.rdCompletedBy._id) ?? rs.value.rdCompletedBy ?? null,
       rdCompletedOn: rs.value.rdCompletedOn ?? null,
-    };
-    await api.patch(`/runsheets/${rs.value._id}`, payload);
+    });
     stamp();
   } catch (e) {
     error.value = e?.response?.data?.error || 'Failed to save return/drop-off';
   }
 };
 
-const loadPeople = async () => {
-  try {
-    people.value = await api.get('/people', { limit: 100 });
-  } catch (e) {
-    peopleError.value = e?.response?.data?.error || 'Failed to load people';
-  }
-};
-
-const cbSearch = ref('');
-const cbResults = ref([]);
-
-const searchCompletedUsers = async () => {
-  try {
-    cbResults.value = await api.get('/users', { q: cbSearch.value });
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to search users';
-  }
-};
-
-const selectCompletedBy = async (u) => {
-  rs.value.completedBy = u; // optimistic for UI
-  await savePickupDelivering();
-};
-
-const clearCompletedBy = async () => {
-  rs.value.completedBy = null;
-  await savePickupDelivering();
-};
-
-const completedByLabel = computed(() => {
-  const v = rs.value.completedBy;
-  if (!v) return '';
-  if (typeof v === 'string') {
-    const hit = cbResults.value.find(x => x._id === v);
-    return hit ? (hit.name || hit.email || hit._id) : `#${v}`;
-  }
-  return v.name || v.email || v._id || '';
+/* ============================== Pickup / Delivering ============================== */
+const pdDateStr = computed({
+  get() { const d = rs.value && rs.value.pdDate && new Date(rs.value.pdDate); return d && !isNaN(d) ? d.toISOString().slice(0,10) : ''; },
+  set(v) { if (rs.value) rs.value.pdDate = v ? new Date(v).toISOString() : null; }
 });
-
+const dateFinishedStr = computed({
+  get() { const d = rs.value && rs.value.dateFinished && new Date(rs.value.dateFinished); return d && !isNaN(d) ? d.toISOString().slice(0,10) : ''; },
+  set(v) { if (rs.value) rs.value.dateFinished = v ? new Date(v).toISOString() : null; }
+});
 const savePickupDelivering = async () => {
-  if (!rs.value?._id) return;
+  if (!rs.value || !rs.value._id) return;
   try {
-    const payload = {
+    await api.patch(`/runsheets/${rs.value._id}`, {
       pdType: rs.value.pdType ?? null,
       pdPaymentMethod: rs.value.pdPaymentMethod ?? null,
       pdDate: rs.value.pdDate ?? null,
       pdTime: rs.value.pdTime || '',
       pdInstructions: rs.value.pdInstructions || '',
-      completedBy: rs.value.completedBy?._id ?? rs.value.completedBy ?? null,
-      dateFinished: rs.value.dateFinished ?? null,
-    };
-    await api.patch(`/runsheets/${rs.value._id}`, payload);
+    });
     stamp();
   } catch (e) {
     error.value = e?.response?.data?.error || 'Failed to save pickup/delivering';
   }
 };
 
-// ---------- Validate & Save core ----------
+/* ======================== Validate & Save core ======================== */
 const validateBeforeSave = () => {
-  if (rs.value.purchaseType === 'rental') {
-    if (!rs.value.pickupDate || !rs.value.returnDate) {
-      error.value = 'Rental runsheets require both pickup and return dates.';
-      return false;
-    }
-    if (new Date(rs.value.returnDate) < new Date(rs.value.pickupDate)) {
-      error.value = 'Return date cannot be before pickup date.';
-      return false;
-    }
+  if (rs.value && rs.value.purchaseType === 'rental') {
+    if (!rs.value.pickupDate || !rs.value.returnDate) { error.value = 'Rental runsheets require both pickup and return dates.'; return false; }
+    if (new Date(rs.value.returnDate) < new Date(rs.value.pickupDate)) { error.value = 'Return date cannot be before pickup date.'; return false; }
   }
-  if (rs.value.postLocation === 'address_below' && !rs.value.postAddress?.trim()) {
-    // Allow if a Place was selected and provides address; otherwise require manual address.
-    if (!selectedPostPlace.value?.address) {
-      error.value = 'Please provide the address for "Address Below".';
-      return false;
-    }
+  if (rs.value && rs.value.postLocation === 'address_below' && !(rs.value.postAddress || '').trim()) {
+    if (!(rs.value.postPlace && rs.value.postPlace.address)) { error.value = 'Please provide the address for "Address Below".'; return false; }
   }
   return true;
 };
-
 const savePurchase = async () => {
-  if (!rs.value?._id) return;
+  if (!rs.value || !rs.value._id) return;
   try {
-    const payload = {
+    await api.patch(`/runsheets/${rs.value._id}`, {
       getInvoice: !!rs.value.getInvoice,
       getDeposit: !!rs.value.getDeposit,
       paid: !!rs.value.paid,
       chequeNumber: rs.value.chequeNumber || '',
       poNumber: rs.value.poNumber || '',
       amount: Number.isFinite(+rs.value.amount) ? +rs.value.amount : 0,
-      paymentReceivedBy: rs.value.paymentReceivedBy || '',
-    };
-    await api.patch(`/runsheets/${rs.value._id}`, payload);
+      receivedBy: (rs.value.receivedBy || '').trim()
+    });
     stamp();
   } catch (e) {
     error.value = e?.response?.data?.error || 'Failed to save purchase info';
@@ -1181,71 +1581,61 @@ const savePurchase = async () => {
 };
 
 const save = async () => {
-  if (!rs.value?._id) return;
+  if (!rs.value || !rs.value._id) return;
   if (!validateBeforeSave()) return;
   saving.value = true; error.value = '';
 
-  const payload = {
-    title: rs.value.title,
-    status: rs.value.status,
-    date: rs.value.date,
-    purchaseType: rs.value.purchaseType,
-    pickupDate: rs.value.pickupDate,
-    returnDate: rs.value.returnDate,
-    takeTo: rs.value.takeTo?._id ?? rs.value.takeTo ?? null,
-    set: rs.value.set?._id ?? rs.value.set ?? null,
-
-    // Post destination
-    postLocation: rs.value.postLocation ?? null,
-    postAddress: rs.value.postLocation === 'address_below'
-      ? (rs.value.postAddress || selectedPostPlace.value?.address || '')
-      : '',
-    postPlace: rs.value.postLocation === 'address_below'
-      ? (selectedPostPlace.value?._id ?? rs.value.postPlace ?? null)
-      : null,
-        // --- Purchase / Payment (NEW) ---
-  getInvoice: !!rs.value.getInvoice,
-  getDeposit: !!rs.value.getDeposit,
-  paid: !!rs.value.paid,
-  chequeNumber: rs.value.chequeNumber || '',
-  poNumber: rs.value.poNumber || '',
-  amount: Number.isFinite(+rs.value.amount) ? +rs.value.amount : 0,
-  paymentReceivedBy: rs.value.paymentReceivedBy || '',
-  pdType: rs.value.pdType ?? null,
-  pdPaymentMethod: rs.value.pdPaymentMethod ?? null,
-  pdDate: rs.value.pdDate ?? null,
-  pdTime: rs.value.pdTime || '',
-  pdInstructions: rs.value.pdInstructions || '',
-  completedBy: rs.value.completedBy?._id ?? rs.value.completedBy ?? null,
-  dateFinished: rs.value.dateFinished ?? null,
-  rdType: rs.value.rdType ?? null,
-  rdCheque: !!rs.value.rdCheque,
-  rdDate: rs.value.rdDate ?? null,
-  rdTime: rs.value.rdTime || '',
-  rdInstructions: rs.value.rdInstructions || '',
-  rdCompletedBy: rs.value.rdCompletedBy?._id ?? rs.value.rdCompletedBy ?? null,
-  rdCompletedOn: rs.value.rdCompletedOn ?? null,
-      
- 
- 
+  try {
+    // NOTE: runsheet-level items are managed via dedicated endpoints, not here.
+    const payload = {
+      title: rs.value.title,
+      status: rs.value.status,
+      date: rs.value.date,
+      purchaseType: rs.value.purchaseType,
+      pickupDate: rs.value.pickupDate,
+      returnDate: rs.value.returnDate,
+      takeTo: (rs.value.takeTo && rs.value.takeTo._id) ?? rs.value.takeTo ?? null,
+      set: (rs.value.set && rs.value.set._id) ?? rs.value.set ?? null,
+      supplier: (rs.value.supplier && rs.value.supplier._id) ?? rs.value.supplier ?? null,
+      postLocation: rs.value.postLocation ?? null,
+      postAddress: rs.value.postLocation === 'address_below'
+        ? (rs.value.postAddress || (rs.value.postPlace && rs.value.postPlace.address) || '')
+        : '',
+      postPlace: rs.value.postLocation === 'address_below'
+        ? ((rs.value.postPlace && rs.value.postPlace._id) ?? rs.value.postPlace ?? null)
+        : null,
+      getInvoice: !!rs.value.getInvoice,
+      getDeposit: !!rs.value.getDeposit,
+      paid: !!rs.value.paid,
+      chequeNumber: rs.value.chequeNumber || '',
+      poNumber: rs.value.poNumber || '',
+      amount: Number.isFinite(+rs.value.amount) ? +rs.value.amount : 0,
+      receivedBy: (rs.value.receivedBy || '').trim(),
+      pdType: rs.value.pdType ?? null,
+      pdPaymentMethod: rs.value.pdPaymentMethod ?? null,
+      pdDate: rs.value.pdDate ?? null,
+      pdTime: rs.value.pdTime || '',
+      pdInstructions: rs.value.pdInstructions || '',
+      rdType: rs.value.rdType ?? null,
+      rdCheque: !!rs.value.rdCheque,
+      rdDate: rs.value.rdDate ?? null,
+      rdTime: rs.value.rdTime || '',
+      rdInstructions: rs.value.rdInstructions || '',
+      rdCompletedBy: (rs.value.rdCompletedBy && rs.value.rdCompletedBy._id) ?? rs.value.rdCompletedBy ?? null,
+      rdCompletedOn: rs.value.rdCompletedOn ?? null,
     };
 
-
-  
-  try {
     rs.value = await api.patch(`/runsheets/${rs.value._id}`, payload);
-    rs.value.photos ??= [];
-    rs.value.receipts ??= rs.value.receipts || [];
 
-    // Rehydrate set for UI if only ID
+    if (!Array.isArray(rs.value.photos)) rs.value.photos = rs.value.photos || [];
+    if (!Array.isArray(rs.value.receipts)) rs.value.receipts = rs.value.receipts || [];
+    if (!Array.isArray(rs.value.items)) rs.value.items = rs.value.items || [];
+
     if (rs.value.set && typeof rs.value.set === 'string') {
-      try {
-        const setObj = await api.get(`/sets/${rs.value.set}`);
-        if (setObj?._id) rs.value.set = setObj;
-      } catch { /* ignore */ }
+      try { rs.value.set = await api.get(`/sets/${rs.value.set}`); } catch (e) {}
     }
-
     await hydratePostPlace();
+    await refreshAttachedItems(); // keep rs.items synced after save
     stamp();
   } catch (e) {
     error.value = e?.response?.data?.error || 'Failed to save';
@@ -1254,135 +1644,11 @@ const save = async () => {
   }
 };
 
-// ---------- Contact selection (single-select) ----------
-const saveContactSelection = async () => {
-  if (!rs.value?._id) return;
-  contactSaving.value = true;
-  const wanted = selectedPersonId.value;
-  try {
-    await api.patch(`/runsheets/${rs.value._id}`, { contact: wanted || null });
-    rs.value.contact = wanted || null; // optimistic
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to save contact';
-    selectedPersonId.value = rs.value?.contact || null; // revert
-  } finally {
-    contactSaving.value = false;
-  }
-};
+/* ============================ Media ============================ */
+const apiBase = (import.meta.env.VITE_API_BASE || 'http://localhost:4000/api');
+const imageUrl = (p) => apiBase.replace('/api','') + p;
+const isImage = (path) => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(path || '');
 
-const onTogglePerson = (p, ev) => {
-  const willCheck = ev.target.checked;
-  selectedPersonId.value = willCheck ? p._id : null;
-  ev.target.checked = willCheck; // prevent flicker
-  saveContactSelection();
-};
-const clearContact = () => {
-  selectedPersonId.value = null;
-  saveContactSelection();
-};
-
-const selectedPersonLabel = computed(() => {
-  const id = selectedPersonId.value;
-  if (!id) return '';
-  const p = people.value.find(x => x._id === id);
-  if (!p) return `#${id}`;
-  const extra = [p.email, p.phone].filter(Boolean).join(' · ');
-  return extra ? `${p.name} — ${extra}` : p.name;
-});
-
-// ---------- Post Location: place + address_below ----------
-const selectedPostPlace = ref(null); // { _id, name, address } or null
-
-const hydratePostPlace = async () => {
-  // Normalize local helper based on rs.postPlace (id or populated)
-  if (rs.value?.postPlace && typeof rs.value.postPlace === 'string') {
-    try {
-      const place = await api.get(`/places/${rs.value.postPlace}`);
-      if (place?._id) selectedPostPlace.value = place;
-    } catch { selectedPostPlace.value = null; }
-  } else if (rs.value?.postPlace && typeof rs.value.postPlace === 'object') {
-    selectedPostPlace.value = rs.value.postPlace;
-  } else {
-    selectedPostPlace.value = null;
-  }
-};
-
-// Centralized saver for post fields
-const savePostLocation = async () => {
-  if (!rs.value?._id) return;
-  try {
-    const payload = {
-      postLocation: rs.value.postLocation ?? null,
-      postPlace: rs.value.postLocation === 'address_below'
-        ? (selectedPostPlace.value?._id ?? null)
-        : null,
-      postAddress: rs.value.postLocation === 'address_below'
-        ? (rs.value.postAddress || selectedPostPlace.value?.address || '')
-        : '',
-    };
-    await api.patch(`/runsheets/${rs.value._id}`, payload);
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to save post location';
-  }
-};
-
-// One-of checkboxes handler
-const togglePost = (key, ev) => {
-  const willCheck = ev?.target?.checked ?? true;
-  rs.value.postLocation = willCheck ? key : null;
-
-  if (key !== 'address_below') {
-    selectedPostPlace.value = null;
-    rs.value.postPlace = null;
-    rs.value.postAddress = '';
-  }
-  if (ev?.target) ev.target.checked = willCheck;
-
-  savePostLocation();
-};
-
-// Choose & clear place when "Address Below" is active
-const choosePostPlace = async (place) => {
-  rs.value.postLocation = 'address_below';
-  selectedPostPlace.value = place;
-  rs.value.postPlace = place._id;
-  // Pre-fill address from selected place if textarea empty
-  if (!rs.value.postAddress) rs.value.postAddress = place.address || '';
-  await savePostLocation();
-};
-
-const clearPostPlace = async () => {
-  selectedPostPlace.value = null;
-  rs.value.postPlace = null;
-  rs.value.postAddress = '';
-  await savePostLocation();
-};
-
-const postPlaceLabel = computed(() => {
-  const p = selectedPostPlace.value;
-  return p ? [p.name, p.address].filter(Boolean).join(' — ') : '';
-});
-
-const onPostAddressBlur = async () => {
-  if (rs.value.postLocation === 'address_below') {
-    await savePostLocation();
-  }
-};
-
-// ---------- Delete ----------
-const destroy = async () => {
-  if (!confirm('Delete this runsheet?')) return;
-  try {
-    await api.del(`/runsheets/${rs.value._id}`);
-    goToRunsheets();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to delete';
-  }
-};
-
-// ---------- Photos ----------
 const uploadPhotos = async (e) => {
   const fd = new FormData();
   [...e.target.files].forEach(f => fd.append('photos', f));
@@ -1392,78 +1658,52 @@ const uploadPhotos = async (e) => {
     stamp();
   } catch (e2) {
     error.value = e2?.response?.data?.error || 'Failed to upload photos';
-  } finally {
-    e.target.value = '';
-  }
+  } finally { e.target.value = ''; }
 };
 const removePhoto = async (url) => {
   try {
     const resp = await api.del(`/runsheets/${rs.value._id}/photos`, { url });
-    rs.value.photos = resp.photos;
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to remove photo';
-  }
+    rs.value.photos = resp.photos; stamp();
+  } catch (e) { error.value = e?.response?.data?.error || 'Failed to remove photo'; }
 };
 
-// ---------- Receipts ----------
 const uploadReceipts = async (e) => {
   const fd = new FormData();
   [...e.target.files].forEach(f => fd.append('receipts', f));
   try {
-    const resp = await api.post(`/runsheets/${rs.value._id}/receipts`, fd, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    });
-    rs.value.receipts = resp.receipts || [];
-    stamp();
+    const resp = await api.post(`/runsheets/${rs.value._id}/receipts`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    rs.value.receipts = resp.receipts || []; stamp();
   } catch (e2) {
     error.value = e2?.response?.data?.error || 'Failed to upload receipts';
-  } finally {
-    e.target.value = '';
-  }
+  } finally { e.target.value = ''; }
 };
 const removeReceipt = async (url) => {
   try {
     const resp = await api.del(`/runsheets/${rs.value._id}/receipts`, { url });
-    rs.value.receipts = resp.receipts || [];
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to remove receipt';
-  }
+    rs.value.receipts = resp.receipts || []; stamp();
+  } catch (e) { error.value = e?.response?.data?.error || 'Failed to remove receipt'; }
 };
-const isImage = (path) => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(path || '');
 
-// ---------- Stops ----------
+/* ============================ Stops ============================ */
 const addStop = async (place) => {
   try {
     const updated = await api.post(`/runsheets/${rs.value._id}/stops`, { place: place._id, title: place.name, instructions: '' });
-    rs.value = updated;
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to add stop';
-  }
+    rs.value = updated; stamp();
+  } catch (e) { error.value = e?.response?.data?.error || 'Failed to add stop'; }
 };
 const saveStop = async (s) => {
   try {
     const updated = await api.patch(`/runsheets/${rs.value._id}/stops/${s._id}`, s);
-    rs.value = updated;
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to save stop';
-  }
+    rs.value = updated; stamp();
+  } catch (e) { error.value = e?.response?.data?.error || 'Failed to save stop'; }
 };
 const removeStop = async (stopId) => {
   if (!confirm('Remove this stop?')) return;
   try {
     const updated = await api.del(`/runsheets/${rs.value._id}/stops/${stopId}`);
-    rs.value = updated;
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to remove stop';
-  }
+    rs.value = updated; stamp();
+  } catch (e) { error.value = e?.response?.data?.error || 'Failed to remove stop'; }
 };
-
-// Reorder
 const moveStopUp = async (idx) => {
   if (idx <= 0) return;
   const arr = [...rs.value.stops];
@@ -1481,133 +1721,259 @@ const moveStopDown = async (idx) => {
   await save();
 };
 
-// ---------- Items ----------
-const itemSearch = ref('');
-const itemResults = ref([]);
-const searchItems = async () => {
+/* ========= RUNSHEET-LEVEL ITEMS: search / attach / remove / create+attach ========= */
+const itemSearch     = ref('');
+const itemResults    = ref([]);
+const searchingItems = ref(false);
+const itemListError  = ref('');
+const attachedItems  = ref([]);
+
+// Get attached items
+async function refreshAttachedItems () {
+  if (!rs.value || !rs.value._id) return;
   try {
-    itemResults.value = await api.get('/items', { q: itemSearch.value });
+    const data = await api.get(`/runsheets/${rs.value._id}/items`);
+    const arr = Array.isArray(data) ? data : (data && data.items) || [];
+    attachedItems.value = arr;
+    rs.value.items = arr;
   } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to search items';
+    attachedItems.value = Array.isArray(rs.value && rs.value.items) ? rs.value.items : [];
   }
-};
-const addItemToStop = async (stopId, it) => {
+}
+
+// Search catalog items
+async function searchItems() {
+  itemListError.value = '';
+  searchingItems.value = true;
   try {
-    const updated = await api.post(`/runsheets/${rs.value._id}/stops/${stopId}/items`, { itemId: it._id, quantity: 1 });
-    rs.value = updated;
-    stamp();
+    const params = { q: (itemSearch.value || '').trim(), limit: 25 };
+    itemResults.value = await api.get('/items', params);
   } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to add item to stop';
-  }
-};
-const removeRunItem = async (stopId, idx) => {
-  try {
-    const stop = rs.value.stops.find(s => s._id === stopId);
-    if (!stop) return;
-    const next = { ...stop, items: stop.items.filter((_, i) => i !== idx) };
-    const updated = await api.patch(`/runsheets/${rs.value._id}/stops/${stopId}`, next);
-    rs.value = updated;
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to remove run item';
-  }
-};
-const uploadRunItemPhotos = async (stopId, idx, e) => {
-  const fd = new FormData();
-  [...e.target.files].forEach(f => fd.append('photos', f));
-  try {
-    await api.post(`/runsheets/${rs.value._id}/stops/${stopId}/items/${idx}/photos`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-    await load();
-    stamp();
-  } catch (e2) {
-    error.value = e2?.response?.data?.error || 'Failed to upload run-item photos';
+    itemListError.value = e?.response?.data?.error || 'Failed to load items';
+    itemResults.value = [];
   } finally {
-    e.target.value = '';
+    searchingItems.value = false;
   }
+}
+
+// Attach an existing item to the runsheet
+async function addItemToRunsheet(itemOrId, qty = 1) {
+  const id = rs.value && rs.value._id;
+  const itemId = typeof itemOrId === 'string' ? itemOrId : itemOrId && itemOrId._id;
+  if (!id || !itemId) return;
+  try {
+    const resp = await api.post(`/runsheets/${id}/items`, { itemId, quantity: qty || 1 });
+    if (Array.isArray(resp)) {
+      attachedItems.value = resp;
+      rs.value.items = resp;
+    } else if (resp && resp.items) {
+      attachedItems.value = resp.items;
+      rs.value.items = resp.items;
+    } else {
+      await refreshAttachedItems();
+    }
+    stamp();
+  } catch (e) {
+    alert(e?.response?.data?.error || 'Could not attach item to runsheet');
+  }
+}
+
+// Keep template calls working: "addItemToStop(stopId, it)" now attaches to RUNSHEET
+async function addItemToStop(_stopId, it) {
+  await addItemToRunsheet(it, 1);
+}
+
+// Remove an attached item
+async function removeAttachedItem(itemId) {
+  const id = rs.value && rs.value._id;
+  if (!id || !itemId) return;
+  try {
+    const resp = await api.del(`/runsheets/${id}/items/${itemId}`);
+    if (Array.isArray(resp)) {
+      attachedItems.value = resp;
+      rs.value.items = resp;
+    } else if (resp && resp.items) {
+      attachedItems.value = resp.items;
+      rs.value.items = resp.items;
+    } else {
+      await refreshAttachedItems();
+    }
+    stamp();
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to remove item from runsheet';
+  }
+}
+
+// Create a new Item (with image) and attach it to the runsheet
+const newItem = ref({ name: '', description: '', qty: 1, file: null, preview: '' });
+const creatingItem    = ref(false);
+const createItemError = ref('');
+function onNewItemImage(e) {
+  const f = e.target && e.target.files && e.target.files[0] || null;
+  newItem.value.file = f;
+  newItem.value.preview = f ? URL.createObjectURL(f) : '';
+}
+async function createAndAddItemToStop(_stopId_ignored) {
+  createItemError.value = '';
+  if (!newItem.value.name.trim()) { createItemError.value = 'Name is required'; return; }
+  creatingItem.value = true;
+  try {
+    const fd = new FormData();
+    fd.append('name', newItem.value.name.trim());
+    if (newItem.value.description && newItem.value.description.trim()) fd.append('description', newItem.value.description.trim());
+    if (newItem.value.file) fd.append('image', newItem.value.file);
+
+    const created = await api.post('/items', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    await addItemToRunsheet(created._id, newItem.value.qty || 1);
+    itemResults.value.unshift(created);
+    newItem.value = { name: '', description: '', qty: 1, file: null, preview: '' };
+  } catch (e) {
+    createItemError.value = e?.response?.data?.error || 'Failed to create item';
+  } finally { creatingItem.value = false; }
+}
+
+// Template might still offer "run item photos" per stop; now it’s N/A
+const removeRunItem = async (_stopId, _idx) => {
+  alert('Run-item rows are now runsheet-level. Remove from the “Attached Items” list instead.');
+};
+const uploadRunItemPhotos = async (_stopId, _idx, e) => {
+  e.target.value = '';
+  alert('Per-stop item photos are no longer supported. Add images to the Item itself.');
 };
 
-// ---------- Assign to driver ----------
+/* ============================ Assign to driver ============================ */
 const userSearch = ref('');
 const userResults = ref([]);
 const searchUsers = async () => {
-  try {
-    userResults.value = await api.get('/users', { q: userSearch.value });
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to search users';
-  }
+  try { userResults.value = await api.get('/users', { q: userSearch.value }); }
+  catch (e) { error.value = e?.response?.data?.error || 'Failed to search users'; }
 };
 const assign = async (u) => {
-  try {
-    rs.value = await api.post(`/runsheets/${rs.value._id}/assign`, { userId: u._id });
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to assign';
-  }
+  try { rs.value = await api.post(`/runsheets/${rs.value._id}/assign`, { userId: u._id }); stamp(); }
+  catch (e) { error.value = e?.response?.data?.error || 'Failed to assign'; }
 };
 
-// ---------- Destination (Take To) ----------
+/* ============================ Destination (Place) ============================ */
 const setTakeTo = async (place) => {
-  try {
-    const payload = { takeTo: place._id || place };
-    rs.value = await api.patch(`/runsheets/${rs.value._id}`, payload);
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to set destination';
-  }
+  try { rs.value = await api.patch(`/runsheets/${rs.value._id}`, { takeTo: place._id || place }); stamp(); }
+  catch (e) { error.value = e?.response?.data?.error || 'Failed to set destination'; }
 };
 const clearTakeTo = async () => {
-  try {
-    rs.value = await api.patch(`/runsheets/${rs.value._id}`, { takeTo: null });
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to clear destination';
-  }
+  try { rs.value = await api.patch(`/runsheets/${rs.value._id}`, { takeTo: null }); stamp(); }
+  catch (e) { error.value = e?.response?.data?.error || 'Failed to clear destination'; }
 };
 
-// ---------- Sets ----------
+/* ============================ Sets ============================ */
 const setSearch = ref('');
 const setResults = ref([]);
 const searchSets = async () => {
-  try {
-    setResults.value = await api.get('/sets', setSearch.value ? { q: setSearch.value } : undefined);
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to search sets';
-  }
+  try { setResults.value = await api.get('/sets', setSearch.value ? { q: setSearch.value } : undefined); }
+  catch (e) { error.value = e?.response?.data?.error || 'Failed to search sets'; }
 };
 const chooseSet = async (s) => {
-  try {
-    rs.value = await api.patch(`/runsheets/${rs.value._id}`, { set: s._id });
-    rs.value.set = s; // keep populated for UI
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to link set';
-  }
+  try { rs.value = await api.patch(`/runsheets/${rs.value._id}`, { set: s._id }); rs.value.set = s; stamp(); }
+  catch (e) { error.value = e?.response?.data?.error || 'Failed to link set'; }
 };
 const clearSet = async () => {
-  try {
-    rs.value = await api.patch(`/runsheets/${rs.value._id}`, { set: null });
-    rs.value.set = null;
-    stamp();
-  } catch (e) {
-    error.value = e?.response?.data?.error || 'Failed to clear set';
-  }
+  try { rs.value = await api.patch(`/runsheets/${rs.value._id}`, { set: null }); rs.value.set = null; stamp(); }
+  catch (e) { error.value = e?.response?.data?.error || 'Failed to clear set'; }
 };
 const currentSetLabel = computed(() => {
-  const v = rs.value.set;
-  if (!v) return '';
-  if (typeof v === 'string') return `#${v}`;
-  return `${v.number} — ${v.name}`;
+  const v = rs.value && rs.value.set; if (!v) return ''; if (typeof v === 'string') return `#${v}`; return `${v.number} — ${v.name}`;
 });
 
+/* ============================ Supplier (separate) ============================ */
+const selectedSupplier = ref(null);
+const searching = ref(false);
+const listError = ref('');
+const suppliers = ref([]);
+const search = ref('');
+const creating = ref(false);
+const createError = ref('');
+const createForm = ref({ name: '', address: '', phone: '', contactName: '', hours: '' });
+
+let searchTimer;
+function debouncedFetchSuppliers(delay = 300) { clearTimeout(searchTimer); searchTimer = setTimeout(fetchSuppliers, delay); }
+async function fetchSuppliers() {
+  listError.value = ''; searching.value = true; suppliers.value = [];
+  try { const q = (search.value || '').trim(); suppliers.value = await api.get('/suppliers', { q }); }
+  catch (e) { listError.value = e?.response?.data?.error || 'Failed to load suppliers'; }
+  finally { searching.value = false; }
+}
+async function persistSupplier(idOrNull) {
+  if (!rs.value || !rs.value._id) return;
+  saving.value = true;
+  try { rs.value = await api.patch(`/runsheets/${rs.value._id}`, { supplier: idOrNull }); }
+  finally { saving.value = false; }
+}
+async function chooseSupplier(s) {
+  try { await persistSupplier(s._id); selectedSupplier.value = s; stamp(); }
+  catch (e) { error.value = e?.response?.data?.error || 'Failed to set supplier'; }
+}
+async function clearSupplier() {
+  try { await persistSupplier(null); selectedSupplier.value = null; stamp(); }
+  catch (e) { error.value = e?.response?.data?.error || 'Failed to clear supplier'; }
+}
+function startChangeSupplier() { selectedSupplier.value = null; suppliers.value = []; search.value = ''; listError.value = ''; }
+async function createSupplier() {
+  createError.value = '';
+  const body = {
+    name: (createForm.value.name || '').trim(),
+    address: (createForm.value.address || '').trim(),
+    phone: (createForm.value.phone || '').trim() || undefined,
+    contactName: (createForm.value.contactName || '').trim() || undefined,
+    hours: (createForm.value.hours || '').trim() || undefined,
+  };
+  if (!body.name || !body.address) { createError.value = 'Name and address are required.'; return; }
+  creating.value = true;
+  try {
+    const s = await api.post('/suppliers', body);
+    await persistSupplier(s._id);
+    selectedSupplier.value = s;
+    createForm.value = { name: '', address: '', phone: '', contactName: '', hours: '' };
+    stamp();
+  } catch (e) {
+    createError.value = e?.response?.data?.error || 'Failed to create supplier';
+  } finally { creating.value = false; }
+}
+
+/* ============================ Misc ============================ */
 const mapsUrl = (lat, lng) => `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 
+const goToRunsheets = () => {
+  router.push({ path: '/runsheets' }).catch(() => {
+    const base = (router && router.options && router.options.history && router.options.history.base || '').replace(/\/$/, '');
+    location.assign(`${base}/runsheets`);
+  });
+};
+const goToRunsheetView = () => {
+  const id = rs.value && rs.value._id; if (!id) return;
+  router.push({ name: 'runsheet-view', params: { id } })
+    .catch(() => router.push(`/runsheets/${id}`))
+    .catch(() => {});
+};
+
 onMounted(async () => {
-  me.value = await auth.fetchMe();
-  await Promise.all([load(), loadPeople()]);
-  await searchSets();
-  setTimeout(initSignatureCanvas, 0); // let layout settle first
+  loading.value = true;
+  try {
+    try { me.value = await auth.fetchMe(); } catch (e) {}
+    await Promise.all([loadPeople(), searchSets(), load()]);
+    if (rs.value && rs.value.supplier) {
+      selectedSupplier.value = typeof rs.value.supplier === 'object'
+        ? rs.value.supplier
+        : await api.get(`/suppliers/${rs.value.supplier}`).catch(() => null);
+    }
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to initialize runsheet';
+  } finally {
+    loading.value = false;
+    setTimeout(initSignatureCanvas, 0);
+  }
 });
 </script>
+
+
+
 
 
 

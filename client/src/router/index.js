@@ -6,6 +6,7 @@ const Login          = () => import('../views/Login.vue');
 const Dashboard      = () => import('../views/Dashboard.vue');
 const AdminUsers     = () => import('../views/AdminUsers.vue');
 const RunSheets      = () => import('../views/RunSheets.vue');
+const RunSheetSingle = () => import('../views/RunSheetSingle.vue');
 const RunSheetEditor = () => import('../views/RunSheetEditor.vue');
 const Driver         = () => import('../views/Driver.vue');
 const Items          = () => import('../views/Items.vue');
@@ -31,6 +32,16 @@ const router = createRouter({
     // Runsheets
     { path: '/runsheets', name: 'runsheets', component: RunSheets },
     { path: '/runsheets/:id', name: 'runsheet-edit', component: RunSheetEditor, props: true },
+    {
+        path: '/runsheetsview/:id',
+        name: 'runsheet-view',component:RunSheetSingle // read-only
+      }
+      ,
+      {
+        path: '/runsheets/:id/beta',
+        name: 'runsheet-beta',
+        component: () => import('../views/RunSheetsBeta.vue')
+      },
 
     // Suppliers
     { path: '/suppliers', name: 'suppliers', component: Suppliers },

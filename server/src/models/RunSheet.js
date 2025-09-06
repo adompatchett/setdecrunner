@@ -2,6 +2,15 @@ import mongoose from 'mongoose';
 
 const { Schema } = mongoose;
 
+/* --------------------------- Constants / Enums --------------------------- */
+const POST_LOCATION_OPTS = ['hold_on_truck', 'office', 'setdec_storage', 'address_below'];
+const PURCHASE_TYPES     = ['purchase', 'rental'];
+const PD_TYPES           = ['pickup', 'delivering'];
+const PAY_METHODS        = ['cheque', 'cash'];
+const RD_TYPES           = ['pu', 'take'];
+
+/* --------------------------- Subdocument Schemas ------------------------- */
+// Per-stop run item rows (legacy). No _id needed if you index by array index.
 const RunItemSchema = new Schema({
   item:     { type: Schema.Types.ObjectId, ref: 'Item' },
   name:     { type: String, trim: true },
@@ -10,6 +19,7 @@ const RunItemSchema = new Schema({
   photos:   { type: [String], default: [] },
 }, { _id: false });
 
+// Stop schema (used inside runsheet.stops[])
 const StopSchema = new Schema({
   place:        { type: Schema.Types.ObjectId, ref: 'Place' },
   title:        { type: String, trim: true, default: 'Stop' },
@@ -17,12 +27,16 @@ const StopSchema = new Schema({
   items:        { type: [RunItemSchema], default: [] },
 }, { _id: true });
 
-const POST_LOCATION_OPTS = ['hold_on_truck', 'office', 'setdec_storage', 'address_below'];
-const PURCHASE_TYPES     = ['purchase', 'rental'];
-const PD_TYPES           = ['pickup', 'delivering']; // Pickup/Delivering section
-const PAY_METHODS        = ['cheque', 'cash'];
-const RD_TYPES           = ['pu', 'take'];           // Return/Drop Off section
+// Runsheet-level attachment rows (new). Keep _id so you can delete a specific row.
+const RunAttachSchema = new Schema({
+  item:     { type: Schema.Types.ObjectId, ref: 'Item', required: true },
+  name:     { type: String, trim: true },
+  quantity: { type: Number, default: 1 },
+  notes:    { type: String, trim: true, default: '' },
+  photos:   { type: [String], default: [] },
+}, { _id: true });
 
+/* --------------------------- Main Runsheet Schema ------------------------ */
 const RunsheetSchema = new Schema({
   title:  { type: String, trim: true, default: 'Untitled' },
   status: {
@@ -38,8 +52,14 @@ const RunsheetSchema = new Schema({
   photos:   { type: [String], default: [] },
   receipts: { type: [String], default: [] },
 
+  // Supplier (optional explicit link)
+  supplier: { type: Schema.Types.ObjectId, ref: 'Supplier', default: null },
+
   // Run
-  stops: { type: [StopSchema], default: [] },
+  stops:  { type: [StopSchema],     default: [] },
+
+  // NEW: runsheet-level items (attached to runsheet, not a stop)
+  items:  { type: [RunAttachSchema], default: [] },
 
   // Type
   purchaseType: { type: String, enum: PURCHASE_TYPES, default: 'purchase' },
@@ -57,42 +77,79 @@ const RunsheetSchema = new Schema({
 
   // Post-Run Destination (one-of)
   postLocation: { type: String, enum: POST_LOCATION_OPTS, default: null },
-  postAddress:  { type: String, trim: true, default: '' }, // used when address_below
-  postPlace:    { type: Schema.Types.ObjectId, ref: 'Place', default: null }, // optional helper
+  postAddress:  { type: String, trim: true, default: '' },
+  postPlace:    { type: Schema.Types.ObjectId, ref: 'Place', default: null },
 
   // Purchase Info
   getInvoice:    { type: Boolean, default: false },
   getDeposit:    { type: Boolean, default: false },
-  chequeNumber:  { type: String, trim: true, default: '' }, // Cheque #
-  poNumber:      { type: String, trim: true, default: '' }, // PO #
-  paid:          { type: Boolean, default: false },         // PAID yes/no
-  amount:        { type: Number, default: 0 },              // currency amount
-  receivedBy:    { type: String, trim: true, default: '' }, // Cheque/Cash received by (name)
+  chequeNumber:  { type: String, trim: true, default: '' },
+  poNumber:      { type: String, trim: true, default: '' },
+  paid:          { type: Boolean, default: false },
+  amount:        { type: Number,  default: 0 },
+  receivedBy:    { type: String, trim: true, default: '' },
 
-  // Pickup / Delivering section
-  pdType:           { type: String, enum: PD_TYPES, default: null },      // 'pickup' | 'delivering'
-  pdPaymentMethod:  { type: String, enum: PAY_METHODS, default: null },   // 'cheque' | 'cash'
+  // Pickup / Delivering
+  pdType:           { type: String, enum: PD_TYPES, default: null },
+  pdPaymentMethod:  { type: String, enum: PAY_METHODS, default: null },
   pdDate:           { type: Date, default: null },
-  pdTime:           { type: String, trim: true, default: '' },            // HH:mm (UI string)
+  pdTime:           { type: String, trim: true, default: '' },  // HH:mm
   pdInstructions:   { type: String, trim: true, default: '' },
   pdCompletedBy:    { type: Schema.Types.ObjectId, ref: 'User', default: null },
-  pdCompletedOn:    { type: Date, default: null },                         // date finished
+  pdCompletedOn:    { type: Date, default: null },
 
-  // Return / Drop Off section
-  rdType:           { type: String, enum: RD_TYPES, default: null },      // 'pu' | 'take'
-  rdCheque:         { type: Boolean, default: false },                    // on/off
+  // Return / Drop Off
+  rdType:           { type: String, enum: RD_TYPES, default: null },
+  rdCheque:         { type: Boolean, default: false },
   rdDate:           { type: Date, default: null },
-  rdTime:           { type: String, trim: true, default: '' },            // HH:mm (UI string)
+  rdTime:           { type: String, trim: true, default: '' },  // HH:mm
   rdInstructions:   { type: String, trim: true, default: '' },
   rdCompletedBy:    { type: Schema.Types.ObjectId, ref: 'User', default: null },
   rdCompletedOn:    { type: Date, default: null },
 
   // QC on return
-  qcItemsGood:     { type: Boolean, default: null }, // null until set; true/false afterwards
-  qcSignatureData: { type: String, default: '' },    // data URL (PNG) or empty
+  qcItemsGood:     { type: Boolean, default: null },
+  qcSignatureData: { type: String, default: '' },
+
+  // Canonical list of Item IDs used anywhere on this runsheet
+  itemsIndex: { type: [{ type: Schema.Types.ObjectId, ref: 'Item' }], default: [] },
 }, { timestamps: true });
 
 RunsheetSchema.index({ title: 'text', status: 'text' });
+RunsheetSchema.index({ itemsIndex: 1 });
+
+/* --------------------------- Helpers / Hooks ------------------------------ */
+function collectItemIds(rsDoc) {
+  const set = new Set();
+
+  // runsheet-level
+  for (const ri of rsDoc.items || []) {
+    if (ri?.item) set.add(String(ri.item));
+  }
+  // per-stop legacy
+  for (const stop of rsDoc.stops || []) {
+    for (const ri of stop.items || []) {
+      if (ri?.item) set.add(String(ri.item));
+    }
+  }
+  return Array.from(set);
+}
+
+RunsheetSchema.pre('save', function(next) {
+  try {
+    this.itemsIndex = collectItemIds(this).map(id => new mongoose.Types.ObjectId(id));
+    next();
+  } catch (e) { next(e); }
+});
+
+RunsheetSchema.statics.syncItemsIndex = async function (rsId) {
+  const rs = await this.findById(rsId).select('items.item stops.items.item').lean();
+  if (!rs) return;
+  const ids = collectItemIds(rs);
+  await this.updateOne({ _id: rsId }, { $set: { itemsIndex: ids } });
+};
 
 export default mongoose.model('Runsheet', RunsheetSchema);
+
+
 

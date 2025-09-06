@@ -8,6 +8,8 @@ import Runsheet from '../models/Runsheet.js';
 import Item from '../models/Item.js';
 import User from '../models/User.js';
 import Place from '../models/Place.js';
+import Supplier from '../models/Supplier.js';
+
 import { authRequired, requireSiteAuthorized, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -58,6 +60,7 @@ const populateLite = (q) =>
    .populate('createdBy', 'name')
    .populate({ path: 'stops.place', select: 'name address lat lng' })
    .populate({ path: 'takeTo', select: 'name address lat lng' })
+   .populate({ path: 'supplier', select: 'name address phone contactName hours location' }) // supplier
    .populate({ path: 'set', select: 'number name' })
    .populate({ path: 'contact', select: 'name email phone' })
    .populate({ path: 'postPlace', select: 'name address lat lng' })
@@ -83,6 +86,7 @@ function buildListQuery(req) {
     q.assignedTo = { $in: [null, undefined] };
   }
   if (req.query.status) q.status = req.query.status;
+  if (req.query.purchaseType) q.purchaseType = req.query.purchaseType; // <— added
   return q;
 }
 
@@ -172,10 +176,11 @@ router.get('/', async (req, res, next) => {
     const q = buildListQuery(req);
     const list = await Runsheet.find(q)
       .sort({ createdAt: -1 })
-      .select('title status date purchaseType pickupDate returnDate takeTo set createdAt createdBy assignedTo photos receipts postLocation postAddress contact')
+      .select('title status date purchaseType pickupDate returnDate takeTo supplier set createdAt createdBy assignedTo photos receipts postLocation postAddress contact')
       .populate('assignedTo', 'name role')
       .populate('createdBy', 'name')
       .populate('takeTo', 'name address')
+      .populate('supplier', 'name address phone contactName hours') // list includes supplier
       .populate('set', 'number name')
       .populate('contact', 'name email phone')
       .lean();
@@ -192,9 +197,10 @@ router.post('/', async (req, res, next) => {
     const pickupDateVal = parseDateInputStrict(b.pickupDate, 'pickupDate') ?? null;
     const returnDateVal = parseDateInputStrict(b.returnDate, 'returnDate') ?? null;
 
-    const takeToId = b.takeTo === undefined ? undefined : coerceObjectId(b.takeTo);
-    const setId    = b.set    === undefined ? undefined : coerceObjectId(b.set);
-    const contact  = b.contact === undefined ? undefined : coerceObjectId(b.contact);
+    const takeToId   = b.takeTo   === undefined ? undefined : coerceObjectId(b.takeTo);
+    const supplierId = b.supplier === undefined ? undefined : coerceObjectId(b.supplier);
+    const setId      = b.set      === undefined ? undefined : coerceObjectId(b.set);
+    const contact    = b.contact  === undefined ? undefined : coerceObjectId(b.contact);
 
     // Post choice
     const postPlace = b.postPlace === undefined ? undefined : coerceObjectId(b.postPlace);
@@ -242,8 +248,9 @@ router.post('/', async (req, res, next) => {
       pickupDate: pickupDateVal,
       returnDate: returnDateVal,
 
-      takeTo: takeToId ?? null,
-      set: setId ?? null,
+      takeTo:   takeToId   ?? null,
+      supplier: supplierId ?? null, // save supplier
+      set:      setId      ?? null,
 
       contact: contact ?? null,
 
@@ -283,6 +290,102 @@ router.post('/', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ----------------------------- Runsheet-level Items ------------------------
+// Attach an existing Item to a runsheet (or bump its quantity)
+// Attach an Item to the RUNSHEET (not a stop)
+router.post('/:id/items', async (req, res, next) => {
+  try {
+    const { itemId, quantity = 1, notes = '' } = req.body || {};
+    if (!itemId) return res.status(400).json({ error: 'itemId required' });
+
+    const item = await Item.findById(itemId).lean();
+    if (!item) return res.status(400).json({ error: 'Item not found' });
+
+    const rs = await Runsheet.findById(req.params.id);
+    if (!rs) return res.status(404).json({ error: 'Not found' });
+
+    if (!Array.isArray(rs.items)) rs.items = [];
+
+    rs.items.push({
+      item: item._id,
+      name: item.name,
+      quantity: Number(quantity) || 1,
+      notes: String(notes || ''),
+      photos: [], // photos belong to the Item doc; you can also keep per-attach photos here if desired
+    });
+
+    await rs.save();
+    if (typeof Runsheet.syncItemsIndex === 'function') {
+      await Runsheet.syncItemsIndex(rs._id);
+    }
+
+    const items = await computeItemsIndexFromRunsheet(rs.toObject());
+    res.status(201).json({ items });
+  } catch (e) { next(e); }
+});
+
+// Detach an Item from the RUNSHEET (accepts the attached row _id OR the Item _id)
+router.delete('/:id/items/:itemOrRowId', async (req, res, next) => {
+  try {
+    const { id, itemOrRowId } = req.params;
+    const want = String(itemOrRowId);
+
+    const rs = await Runsheet.findById(id);
+    if (!rs) return res.status(404).json({ error: 'Not found' });
+
+    if (!Array.isArray(rs.items) || rs.items.length === 0) {
+      return res.json({ items: [] });
+    }
+
+    const before = rs.items.length;
+    rs.items = rs.items.filter(row => {
+      const rowId  = row?._id ? String(row._id)   : null;
+      const itemId = row?.item ? String(row.item) : null;
+      return rowId !== want && itemId !== want;
+    });
+
+    // No-op if nothing changed, but saving is fine
+    await rs.save();
+    if (typeof Runsheet.syncItemsIndex === 'function') {
+      await Runsheet.syncItemsIndex(rs._id);
+    }
+
+    const items = await computeItemsIndexFromRunsheet(rs.toObject());
+    res.json({ items });
+  } catch (e) { next(e); }
+});
+
+// Update an attached item's quantity/notes (optional but handy)
+router.patch('/:id/items/:itemId', async (req, res, next) => {
+  try {
+    const { itemId, id } = req.params;
+    const { quantity, notes } = req.body || {};
+
+    const rs = await Runsheet.findById(id);
+    if (!rs) return res.status(404).json({ error: 'Not found' });
+
+    if (!Array.isArray(rs.items)) rs.items = [];
+    const row = rs.items.find(r => String(r.item) === String(itemId));
+    if (!row) return res.status(404).json({ error: 'Attachment not found' });
+
+    if (quantity !== undefined) {
+      const q = Number(quantity);
+      if (!Number.isFinite(q) || q < 0) return res.status(400).json({ error: 'Invalid quantity' });
+      row.quantity = q;
+    }
+    if (notes !== undefined) row.notes = String(notes || '');
+
+    await rs.save();
+
+    if (typeof Runsheet.syncItemsIndex === 'function') {
+      await Runsheet.syncItemsIndex(rs._id);
+    }
+
+    const items = await computeItemsIndexFromRunsheet(rs.toObject());
+    res.json({ items });
+  } catch (e) { next(e); }
+});
+
 // ----------------------------- Read / Update / Delete ----------------------
 router.get('/:id', async (req, res, next) => {
   try {
@@ -315,6 +418,10 @@ router.patch('/:id', async (req, res, next) => {
       const id = coerceObjectId(b.takeTo);
       if (id === null) unset.takeTo = ''; else update.takeTo = id;
     }
+    if (b.supplier !== undefined) {
+      const id = coerceObjectId(b.supplier);
+      if (id === null) unset.supplier = ''; else update.supplier = id;
+    }
     if (b.set !== undefined) {
       const id = coerceObjectId(b.set);
       if (id === null) unset.set = ''; else update.set = id;
@@ -333,8 +440,8 @@ router.patch('/:id', async (req, res, next) => {
     }
 
     // Purchase Info
-    if (b.getInvoice !== undefined)  update.getInvoice   = !!boolish(b.getInvoice);
-    if (b.getDeposit !== undefined)  update.getDeposit   = !!boolish(b.getDeposit);
+    if (b.getInvoice !== undefined)   update.getInvoice   = !!boolish(b.getInvoice);
+    if (b.getDeposit !== undefined)   update.getDeposit   = !!boolish(b.getDeposit);
     if (b.chequeNumber !== undefined) update.chequeNumber = String(b.chequeNumber || '');
     if (b.poNumber !== undefined)     update.poNumber     = String(b.poNumber || '');
     if (b.paid !== undefined)         update.paid         = !!boolish(b.paid);
@@ -407,6 +514,12 @@ router.patch('/:id', async (req, res, next) => {
     if (Object.keys(unset).length)  ops.$unset = unset;
 
     await Runsheet.findByIdAndUpdate(req.params.id, ops, { new: false });
+
+    // If client sent 'stops' via this endpoint, itemsIndex may have changed
+    if (b.stops !== undefined && typeof Runsheet.syncItemsIndex === 'function') {
+      await Runsheet.syncItemsIndex(req.params.id);
+    }
+
     res.json(await loadFull(req.params.id));
   } catch (e) { next(e); }
 });
@@ -519,6 +632,9 @@ router.post('/:id/stops', async (req, res, next) => {
     });
     await rs.save();
 
+    // Adding a stop with no items usually doesn't affect itemsIndex,
+    // so we skip resync here intentionally.
+
     res.json(await loadFull(rs._id));
   } catch (e) { next(e); }
 });
@@ -553,6 +669,11 @@ router.patch('/:id/stops/:stopId', async (req, res, next) => {
     );
     if (!updated) return res.status(404).json({ error: 'Stop not found' });
 
+    // Items for this stop may have changed → resync itemsIndex
+    if (typeof Runsheet.syncItemsIndex === 'function') {
+      await Runsheet.syncItemsIndex(updated._id);
+    }
+
     res.json(await loadFull(updated._id));
   } catch (e) { next(e); }
 });
@@ -569,6 +690,11 @@ router.delete('/:id/stops/:stopId', async (req, res, next) => {
     );
     if (!updated) return res.status(404).json({ error: 'Stop not found' });
 
+    // Removing a stop may drop items → resync itemsIndex
+    if (typeof Runsheet.syncItemsIndex === 'function') {
+      await Runsheet.syncItemsIndex(updated._id);
+    }
+
     res.json(await loadFull(updated._id));
   } catch (e) { next(e); }
 });
@@ -584,7 +710,7 @@ router.post('/:id/stops/:stopId/items', async (req, res, next) => {
     const stopId = req.params.stopId;
 
     const runItem = {
-      item: it._id,
+      item: it._id,                // persist Item ID on runsheet
       name: it.name,
       quantity: Number(quantity) || 1,
       notes: '',
@@ -597,6 +723,11 @@ router.post('/:id/stops/:stopId/items', async (req, res, next) => {
       { new: true }
     );
     if (!updated) return res.status(404).json({ error: 'Stop not found' });
+
+    // Ensure itemsIndex reflects this addition
+    if (typeof Runsheet.syncItemsIndex === 'function') {
+      await Runsheet.syncItemsIndex(updated._id);
+    }
 
     res.json(await loadFull(updated._id));
   } catch (e) { next(e); }
@@ -628,11 +759,90 @@ router.post(
       const added = req.files.map(f => toPublicPath(path.join(req.uploadDest, f.filename)));
       stop.items[index].photos = [...(stop.items[index].photos || []), ...added];
 
-      await runsheet.save();
+      await runsheet.save(); // photos don't change itemsIndex
       res.json(await loadFull(runsheet._id));
     } catch (e) { next(e); }
   }
 );
+
+function idStr(v) {
+  return v == null ? null : (typeof v === 'string' ? v : String(v));
+}
+
+/**
+ * Build a normalized list of items for a runsheet.
+ * Prefers runsheet-level `items` (new model). Falls back to aggregating stop items (legacy).
+ * Returns an array like:
+ *   [{ _id, item, name, quantity, notes, photos, itemDoc?, location? }, ...]
+ */
+async function computeItemsIndexFromRunsheet(rs) {
+  const out = new Map(); // key = itemId or "adhoc:<name>"
+
+  const add = (row) => {
+    const itemId = row?.item ? idStr(row.item) : null;
+    const key = itemId || `adhoc:${(row?.name || '').trim().toLowerCase()}`;
+    const qty = Number(row?.quantity) || 1;
+    const cur = out.get(key) || {
+      itemId,
+      name: (row?.name || '').trim(),
+      quantity: 0,
+      notes: (row?.notes || '').trim(),
+      photos: Array.isArray(row?.photos) ? row.photos.slice() : [],
+    };
+    cur.quantity += qty;
+    if (!cur.name && row?.name) cur.name = row.name;
+    if (!cur.notes && row?.notes) cur.notes = row.notes;
+    // keep first photos array if present
+    if (!cur.photos?.length && row?.photos?.length) cur.photos = row.photos.slice();
+    out.set(key, cur);
+  };
+
+  // 1) Preferred: runsheet-level attachments
+  if (Array.isArray(rs.items) && rs.items.length) {
+    rs.items.forEach(add);
+  } else if (Array.isArray(rs.stops)) {
+    // 2) Legacy fallback: aggregate from stops
+    for (const stop of rs.stops) {
+      if (Array.isArray(stop?.items)) stop.items.forEach(add);
+    }
+  }
+
+  const rows = [...out.values()];
+  const ids = rows.map(r => r.itemId).filter(Boolean);
+
+  // Load Item documents for attached ids
+  const docs = ids.length
+    ? await Item.find({ _id: { $in: ids } }).populate('location').lean()
+    : [];
+  const byId = new Map(docs.map(d => [idStr(d._id), d]));
+
+  // Merge doc details
+  return rows.map(r => {
+    const doc = r.itemId ? byId.get(r.itemId) : null;
+    return {
+      _id: r.itemId || null,
+      item: r.itemId || null,
+      name: (doc?.name || r.name || '').trim(),
+      quantity: r.quantity,
+      notes: r.notes || '',
+      photos: (doc?.photos?.length ? doc.photos : r.photos) || [],
+      location: doc?.location || undefined,
+      itemDoc: doc || undefined,
+    };
+  });
+}
+
+router.get('/:id/items', authRequired, requireSiteAuthorized, async (req, res, next) => {
+  console.log(req.params.id);
+  try {
+    const rs = await Runsheet.findById(req.params.id).lean();
+    if (!rs) return res.status(404).json({ error: 'Not found' });
+    const items = await computeItemsIndexFromRunsheet(rs);
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ----------------------------- Claim / Assign ------------------------------
 router.post('/:id/claim', async (req, res, next) => {
@@ -708,7 +918,45 @@ router.get('/users', authRequired, requireRole('any'), async (req, res) => {
   res.json(users);
 });
 
+// GET /runsheets/:id/items  -> grouped items with totals + line occurrences
+// Optional: ?populate=1  to include minimal Item data for entries that have an itemId
+router.get('/:id/items', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const populate = String(req.query.populate || '') === '1';
+
+    // We only need stops->items to compute the index
+    const rs = await Runsheet.findById(id)
+      .select('stops')
+      .lean();
+
+    if (!rs) return res.status(404).json({ error: 'Not found' });
+
+    const items = computeItemsIndexFromRunsheet(rs);
+
+    if (populate) {
+      const ids = [...new Set(items.map(i => i.itemId).filter(Boolean))];
+      if (ids.length) {
+        const docs = await Item.find({ _id: { $in: ids } })
+          .select('_id name sku')   // add more safe fields if desired
+          .lean();
+        const byId = Object.fromEntries(docs.map(d => [String(d._id), d]));
+        items.forEach(i => {
+          i.item = i.itemId ? (byId[i.itemId] || null) : null;
+        });
+      }
+    }
+
+    res.json({
+      runsheetId: id,
+      count: items.length,  // number of unique item groupings
+      items
+    });
+  } catch (e) { next(e); }
+});
+
 export default router;
+
 
 
 
