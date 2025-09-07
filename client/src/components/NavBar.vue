@@ -3,7 +3,13 @@
     <!-- Logo -->
     <div class="nav__logo">
       <img src="/logo.png" alt="Set Dec Runner Logo" />
-      <span class="nav__logo-text">Set Dec Runner</span>
+      <div class="nav__logo-texts">
+        <span class="nav__logo-text">Set Dec Runner</span>
+        <!-- Production Label -->
+        <div class="nav__production">
+          {{ company.companyProduction }}
+        </div>
+      </div>
     </div>
 
     <!-- Navigation Links -->
@@ -46,6 +52,7 @@
 import { computed } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useAuth } from '../stores/auth.js';
+import company from '../config/company.js';  // ⬅️ import the production name
 
 const props = defineProps({ me: { type: Object, default: null } });
 defineEmits(['logout']);
@@ -129,6 +136,13 @@ const photoSrc = computed(() => normalizePhoto(rawPhoto.value));
   font-weight: 600;
   font-size: 16px;
   color: #222;
+}
+
+.nav__production {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ccc;
+  margin-top: 2px;
 }
 
 /* ---- Links ---- */
