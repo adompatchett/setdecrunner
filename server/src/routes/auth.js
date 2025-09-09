@@ -3,6 +3,8 @@ import passport from 'passport';
 import { signToken, authRequired } from '../middleware/auth.js';
 import User from '../models/User.js';
 import jwt from 'jsonwebtoken';
+import { resolveTenant } from '../middleware/tenant.js';
+import { withTenant } from '../utils/withTenant.js';
 
 
 const router = Router();

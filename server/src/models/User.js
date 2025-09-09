@@ -2,6 +2,7 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
+import { tenantScopePlugin } from '../plugins/tenantScope.js';
 
 const { Schema } = mongoose;
 

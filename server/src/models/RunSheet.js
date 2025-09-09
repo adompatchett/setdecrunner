@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantScopePlugin } from '../plugins/tenantScope.js';
 
 const { Schema } = mongoose;
 
@@ -47,6 +48,7 @@ const RunsheetSchema = new Schema({
 
   date:        { type: Date, default: null },
   createdBy:   { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  productionId: { type: Schema.Types.ObjectId, ref: 'Production', required: true, index: true },
   assignedTo:  { type: Schema.Types.ObjectId, ref: 'User' },
 
   photos:   { type: [String], default: [] },
@@ -148,6 +150,9 @@ RunsheetSchema.statics.syncItemsIndex = async function (rsId) {
   const ids = collectItemIds(rs);
   await this.updateOne({ _id: rsId }, { $set: { itemsIndex: ids } });
 };
+
+RunsheetSchema.index({ productionId: 1, title: 1 }, { unique: false });
+RunsheetSchema.plugin(tenantScopePlugin);
 
 export default mongoose.model('Runsheet', RunsheetSchema);
 

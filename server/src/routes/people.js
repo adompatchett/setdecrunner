@@ -4,6 +4,8 @@ import mongoose from 'mongoose';
 import path from 'path';
 import fs from 'fs/promises';
 import multer from 'multer';
+import { resolveTenant } from '../middleware/tenant.js';
+import { withTenant } from '../utils/withTenant.js';
 
 import Person from '../models/People.js';
 import { authRequired, requireSiteAuthorized, requireRole } from '../middleware/auth.js';
@@ -55,7 +57,7 @@ router.use(authRequired, requireSiteAuthorized);
 /**
  * GET /people?q=...&limit=...
  */
-router.get('/', async (req, res, next) => {
+router.get('/', authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const q = (req.query.q || '').trim();
     const limit = Math.min(parseInt(req.query.limit || '50', 10), 100);
@@ -78,14 +80,14 @@ router.get('/', async (req, res, next) => {
 
     res.json(list);
   } catch (e) { next(e); }
-});
+}));
 
 // ---------------------------- Create ---------------------------------------
 /**
  * POST /people
  * Allow any authenticated, site-authorized user to create a person.
  */
-router.post('/', async (req, res, next) => {
+router.post('/',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { name = '', email = '', phone = '', user = null, notes = '', role = '', photo = null } = req.body || {};
 
@@ -110,26 +112,26 @@ router.post('/', async (req, res, next) => {
     const full = await Person.findById(created._id).populate('user', 'name email role photo').lean();
     res.status(201).json(full);
   } catch (e) { next(e); }
-});
+}));
 
 // ---------------------------- Read -----------------------------------------
 /**
  * GET /people/:id
  */
-router.get('/:id', async (req, res, next) => {
+router.get('/:id',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const p = await Person.findById(req.params.id).populate('user', 'name email role photo').lean();
     if (!p) return res.status(404).json({ error: 'Not found' });
     res.json(p);
   } catch (e) { next(e); }
-});
+}));
 
 // ---------------------------- Update ---------------------------------------
 /**
  * PATCH /people/:id
  * Allow any authenticated, site-authorized user to edit.
  */
-router.patch('/:id', async (req, res, next) => {
+router.patch('/:id', authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { name, email, phone, user, notes, role, photo } = req.body || {};
     const update = {};
@@ -151,14 +153,14 @@ router.patch('/:id', async (req, res, next) => {
     if (!full) return res.status(404).json({ error: 'Not found' });
     res.json(full);
   } catch (e) { next(e); }
-});
+}));
 
 // ---------------------------- Delete ---------------------------------------
 /**
  * DELETE /people/:id
  * Admin only.
  */
-router.delete('/:id', requireRole('admin'), async (req, res, next) => {
+router.delete('/:id', requireRole('admin'),authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const existed = await Person.findById(req.params.id).select('_id photo');
     if (!existed) return res.status(404).json({ error: 'Not found' });
@@ -172,7 +174,7 @@ router.delete('/:id', requireRole('admin'), async (req, res, next) => {
     await Person.deleteOne({ _id: existed._id });
     res.json({ ok: true });
   } catch (e) { next(e); }
-});
+}));
 
 // ---------------------------- Photo upload ---------------------------------
 /**
@@ -181,8 +183,10 @@ router.delete('/:id', requireRole('admin'), async (req, res, next) => {
  */
 router.post(
   '/:id/photo',
+  authRequired,resolveTenant,
   setUploadDest(async (req) => path.join(UPLOAD_ROOT, 'people', req.params.id)),
   upload.single('photo'),
+  withTenant(
   async (req, res, next) => {
     try {
       const person = await Person.findById(req.params.id);
@@ -203,13 +207,13 @@ router.post(
       res.json(full);
     } catch (e) { next(e); }
   }
-);
+));
 
 /**
  * DELETE /people/:id/photo
  * Clears photo field and removes local file if it lives under /uploads.
  */
-router.delete('/:id/photo', async (req, res, next) => {
+router.delete('/:id/photo',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const person = await Person.findById(req.params.id);
     if (!person) return res.status(404).json({ error: 'Not found' });
@@ -225,6 +229,6 @@ router.delete('/:id/photo', async (req, res, next) => {
     const full = await Person.findById(person._id).populate('user', 'name email role photo').lean();
     res.json(full);
   } catch (e) { next(e); }
-});
+}));
 
 export default router;

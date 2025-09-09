@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantScopePlugin } from '../plugins/tenantScope.js';
 
 const PersonSchema = new mongoose.Schema({
   // Optional link to an app user (if the person has a login)
@@ -18,5 +19,6 @@ const PersonSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 PersonSchema.index({ name: 'text', email: 'text', phone: 'text', role: 'text' });
+PersonSchema.plugin(tenantScopePlugin);
 
 export default mongoose.model('Person', PersonSchema);

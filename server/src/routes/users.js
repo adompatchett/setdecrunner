@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import User from '../models/User.js';
+import { resolveTenant } from '../middleware/tenant.js';
 import { authRequired, requireRole } from '../middleware/auth.js';
+import { withTenant } from '../utils/withTenant.js';
 
 
 const router = Router();
 
 
-router.get('/', authRequired, requireRole('admin'), async (req, res) => {
+router.get('/', authRequired, requireRole('admin'),resolveTenant, withTenant(async (req, res) => {
 const q = (req.query.q || '').trim();
 const filter = q ? { $or: [
 { name: { $regex: q, $options: 'i' } },
@@ -14,17 +16,17 @@ const filter = q ? { $or: [
 ]} : {};
 const users = await User.find(filter).sort({ createdAt: -1 }).limit(200);
 res.json(users);
-});
+}));
 
 
-router.get('/:id', authRequired, requireRole('admin'), async (req, res) => {
+router.get('/:id', authRequired, requireRole('admin'),resolveTenant, withTenant( async (req, res) => {
 const user = await User.findById(req.params.id);
 if (!user) return res.status(404).json({ error: 'Not found' });
 res.json(user);
-});
+}));
 
 
-router.patch('/:id', authRequired, requireRole('admin'), async (req, res) => {
+router.patch('/:id', authRequired, requireRole('admin'),resolveTenant, withTenant( async (req, res) => {
 const { role, siteAuthorized, banned } = req.body;
 const user = await User.findById(req.params.id);
 if (!user) return res.status(404).json({ error: 'Not found' });
@@ -33,15 +35,15 @@ if (typeof siteAuthorized === 'boolean') user.siteAuthorized = siteAuthorized;
 if (typeof banned === 'boolean') user.banned = banned;
 await user.save();
 res.json(user);
-});
+}));
 
 
-router.delete('/:id', authRequired, requireRole('admin'), async (req, res) => {
+router.delete('/:id', authRequired,resolveTenant, requireRole('admin'), withTenant( async (req, res) => {
 const user = await User.findByIdAndDelete(req.params.id);
 res.json({ ok: true, deleted: !!user });
-});
+}));
 
-router.post('/users', authRequired, requireRole('admin'), async (req, res, next) => {
+router.post('/users', authRequired,resolveTenant, requireRole('admin'), withTenant( async (req, res, next) => {
     try {
       const { email, firstName, lastName, role = 'user', siteAuthorized = false, username } = req.body;
       if (!email) return res.status(400).json({ error: 'Email is required' });
@@ -91,6 +93,6 @@ router.post('/users', authRequired, requireRole('admin'), async (req, res, next)
   
       res.json({ ok: true, userId: user._id });
     } catch (e) { next(e); }
-  });
+  }));
 
 export default router;

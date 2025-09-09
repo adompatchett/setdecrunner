@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantScopePlugin } from '../plugins/tenantScope.js';
 
 const SupplierSchema = new mongoose.Schema({
   name:        { type: String, required: true, trim: true },
@@ -14,5 +15,6 @@ const SupplierSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 SupplierSchema.index({ name: 'text', address: 'text', contactName: 'text' });
+SupplierSchema.plugin(tenantScopePlugin);
 
 export default mongoose.model('Supplier', SupplierSchema);

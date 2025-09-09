@@ -4,11 +4,13 @@ import fs from 'fs/promises';
 import multer from 'multer';
 import mongoose from 'mongoose';
 
-import Runsheet from '../models/Runsheet.js';
+import Runsheet from '../models/RunSheet.js';
 import Item from '../models/Item.js';
 import User from '../models/User.js';
 import Place from '../models/Place.js';
 import Supplier from '../models/Supplier.js';
+import { resolveTenant } from '../middleware/tenant.js';
+import { withTenant } from '../utils/withTenant.js';
 
 import { authRequired, requireSiteAuthorized, requireRole } from '../middleware/auth.js';
 
@@ -171,7 +173,7 @@ function boolish(v) {
 router.use(authRequired, requireSiteAuthorized);
 
 // ----------------------------- List / Create -------------------------------
-router.get('/', async (req, res, next) => {
+router.get('/', resolveTenant, authRequired, withTenant( async (req, res, next) => {
   try {
     const q = buildListQuery(req);
     const list = await Runsheet.find(q)
@@ -187,9 +189,9 @@ router.get('/', async (req, res, next) => {
 
     res.json(list);
   } catch (e) { next(e); }
-});
+}));
 
-router.post('/', async (req, res, next) => {
+router.post('/',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const b = req.body || {};
 
@@ -288,12 +290,12 @@ router.post('/', async (req, res, next) => {
 
     res.status(201).json(await loadFull(rs._id));
   } catch (e) { next(e); }
-});
+}));
 
 // ----------------------------- Runsheet-level Items ------------------------
 // Attach an existing Item to a runsheet (or bump its quantity)
 // Attach an Item to the RUNSHEET (not a stop)
-router.post('/:id/items', async (req, res, next) => {
+router.post('/:id/items',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { itemId, quantity = 1, notes = '' } = req.body || {};
     if (!itemId) return res.status(400).json({ error: 'itemId required' });
@@ -322,10 +324,10 @@ router.post('/:id/items', async (req, res, next) => {
     const items = await computeItemsIndexFromRunsheet(rs.toObject());
     res.status(201).json({ items });
   } catch (e) { next(e); }
-});
+}));
 
 // Detach an Item from the RUNSHEET (accepts the attached row _id OR the Item _id)
-router.delete('/:id/items/:itemOrRowId', async (req, res, next) => {
+router.delete('/:id/items/:itemOrRowId',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { id, itemOrRowId } = req.params;
     const want = String(itemOrRowId);
@@ -353,10 +355,10 @@ router.delete('/:id/items/:itemOrRowId', async (req, res, next) => {
     const items = await computeItemsIndexFromRunsheet(rs.toObject());
     res.json({ items });
   } catch (e) { next(e); }
-});
+}));
 
 // Update an attached item's quantity/notes (optional but handy)
-router.patch('/:id/items/:itemId', async (req, res, next) => {
+router.patch('/:id/items/:itemId',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { itemId, id } = req.params;
     const { quantity, notes } = req.body || {};
@@ -384,18 +386,18 @@ router.patch('/:id/items/:itemId', async (req, res, next) => {
     const items = await computeItemsIndexFromRunsheet(rs.toObject());
     res.json({ items });
   } catch (e) { next(e); }
-});
+}));
 
 // ----------------------------- Read / Update / Delete ----------------------
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const rs = await loadFull(req.params.id);
     if (!rs) return res.status(404).json({ error: 'Not found' });
     res.json(rs);
   } catch (e) { next(e); }
-});
+}));
 
-router.patch('/:id', async (req, res, next) => {
+router.patch('/:id', authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const b = req.body || {};
     const update = {};
@@ -522,9 +524,9 @@ router.patch('/:id', async (req, res, next) => {
 
     res.json(await loadFull(req.params.id));
   } catch (e) { next(e); }
-});
+}));
 
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const rs = await Runsheet.findById(req.params.id);
     if (!rs) return res.status(404).json({ error: 'Not found' });
@@ -533,13 +535,13 @@ router.delete('/:id', async (req, res, next) => {
     await Runsheet.deleteOne({ _id: rs._id });
     res.json({ ok: true });
   } catch (e) { next(e); }
-});
+}));
 
 // ----------------------------- Photos (runsheet) ---------------------------
 router.post(
-  '/:id/photos',
+  '/:id/photos',authRequired,resolveTenant,
   setUploadDest(async (req) => path.join(UPLOAD_ROOT, 'runsheets', req.params.id)),
-  upload.array('photos', 12),
+  upload.array('photos', 12),withTenant(
   async (req, res, next) => {
     try {
       const rs = await Runsheet.findById(req.params.id);
@@ -552,9 +554,9 @@ router.post(
       res.json(await loadFull(rs._id));
     } catch (e) { next(e); }
   }
-);
+));
 
-router.delete('/:id/photos', async (req, res, next) => {
+router.delete('/:id/photos',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { url } = req.body || {};
     const rs = await Runsheet.findById(req.params.id);
@@ -570,14 +572,15 @@ router.delete('/:id/photos', async (req, res, next) => {
 
     res.json(await loadFull(rs._id));
   } catch (e) { next(e); }
-});
+}));
 
 // ----------------------------- Receipts (runsheet) -------------------------
 router.post(
   '/:id/receipts',
+  authRequired,resolveTenant,
   setUploadDest(async (req) => path.join(UPLOAD_ROOT, 'runsheets', req.params.id, 'receipts')),
   upload.array('receipts', 20),
-  async (req, res, next) => {
+  withTenant(async (req, res, next) => {
     try {
       const rs = await Runsheet.findById(req.params.id);
       if (!rs) return res.status(404).json({ error: 'Not found' });
@@ -589,9 +592,9 @@ router.post(
       res.json(await loadFull(rs._id));
     } catch (e) { next(e); }
   }
-);
+));
 
-router.delete('/:id/receipts', async (req, res, next) => {
+router.delete('/:id/receipts',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { url } = req.body || {};
     const rs = await Runsheet.findById(req.params.id);
@@ -607,10 +610,10 @@ router.delete('/:id/receipts', async (req, res, next) => {
 
     res.json(await loadFull(rs._id));
   } catch (e) { next(e); }
-});
+}));
 
 // ----------------------------- Stops ---------------------------------------
-router.post('/:id/stops', async (req, res, next) => {
+router.post('/:id/stops',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { place, title, instructions = '' } = req.body || {};
     const rs = await Runsheet.findById(req.params.id);
@@ -637,9 +640,9 @@ router.post('/:id/stops', async (req, res, next) => {
 
     res.json(await loadFull(rs._id));
   } catch (e) { next(e); }
-});
+}));
 
-router.patch('/:id/stops/:stopId', async (req, res, next) => {
+router.patch('/:id/stops/:stopId',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { title, instructions, items, place } = req.body || {};
     const id = req.params.id;
@@ -676,9 +679,9 @@ router.patch('/:id/stops/:stopId', async (req, res, next) => {
 
     res.json(await loadFull(updated._id));
   } catch (e) { next(e); }
-});
+}));
 
-router.delete('/:id/stops/:stopId', async (req, res, next) => {
+router.delete('/:id/stops/:stopId',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const id = req.params.id;
     const stopId = req.params.stopId;
@@ -697,10 +700,10 @@ router.delete('/:id/stops/:stopId', async (req, res, next) => {
 
     res.json(await loadFull(updated._id));
   } catch (e) { next(e); }
-});
+}));
 
 // ----------------------------- Stop Items ----------------------------------
-router.post('/:id/stops/:stopId/items', async (req, res, next) => {
+router.post('/:id/stops/:stopId/items',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { itemId, quantity = 1 } = req.body || {};
     const it = await Item.findById(itemId).lean();
@@ -731,10 +734,11 @@ router.post('/:id/stops/:stopId/items', async (req, res, next) => {
 
     res.json(await loadFull(updated._id));
   } catch (e) { next(e); }
-});
+}));
 
 router.post(
   '/:id/stops/:stopId/items/:idx/photos',
+  authRequired,resolveTenant,
   setUploadDest(async (req) => path.join(
     UPLOAD_ROOT,
     'runsheets',
@@ -742,7 +746,7 @@ router.post(
     `stop-${req.params.stopId}-item-${req.params.idx}`
   )),
   upload.array('photos', 12),
-  async (req, res, next) => {
+  withTenant(async (req, res, next) => {
     try {
       const { id, stopId, idx } = req.params;
       const runsheet = await Runsheet.findById(id);
@@ -763,7 +767,7 @@ router.post(
       res.json(await loadFull(runsheet._id));
     } catch (e) { next(e); }
   }
-);
+));
 
 function idStr(v) {
   return v == null ? null : (typeof v === 'string' ? v : String(v));
@@ -832,7 +836,7 @@ async function computeItemsIndexFromRunsheet(rs) {
   });
 }
 
-router.get('/:id/items', authRequired, requireSiteAuthorized, async (req, res, next) => {
+router.get('/:id/items', authRequired, requireSiteAuthorized, resolveTenant, withTenant( async (req, res, next) => {
   console.log(req.params.id);
   try {
     const rs = await Runsheet.findById(req.params.id).lean();
@@ -842,10 +846,10 @@ router.get('/:id/items', authRequired, requireSiteAuthorized, async (req, res, n
   } catch (err) {
     next(err);
   }
-});
+}));
 
 // ----------------------------- Claim / Assign ------------------------------
-router.post('/:id/claim', async (req, res, next) => {
+router.post('/:id/claim', authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const rs = await Runsheet.findById(req.params.id);
     if (!rs) return res.status(404).json({ error: 'Not found' });
@@ -860,9 +864,9 @@ router.post('/:id/claim', async (req, res, next) => {
 
     res.json(await loadFull(rs._id));
   } catch (e) { next(e); }
-});
+}));
 
-router.post('/:id/assign', requireRole('admin'), async (req, res, next) => {
+router.post('/:id/assign', authRequired,resolveTenant, withTenant( requireRole('admin'), async (req, res, next) => {
   try {
     const { userId } = req.body || {};
     if (!userId) return res.status(400).json({ error: 'userId required' });
@@ -881,9 +885,9 @@ router.post('/:id/assign', requireRole('admin'), async (req, res, next) => {
 
     res.json(await loadFull(rs._id));
   } catch (e) { next(e); }
-});
+}));
 
-router.post('/:id/release', async (req, res, next) => {
+router.post('/:id/release', authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const rs = await Runsheet.findById(req.params.id);
     if (!rs) return res.status(404).json({ error: 'Not found' });
@@ -902,10 +906,10 @@ router.post('/:id/release', async (req, res, next) => {
 
     res.json(await loadFull(rs._id));
   } catch (e) { next(e); }
-});
+}));
 
 // Utility: search users (kept for Runsheet editor helpers)
-router.get('/users', authRequired, requireRole('any'), async (req, res) => {
+router.get('/users', authRequired, requireRole('any'), resolveTenant, withTenant( async (req, res) => {
   const q = (req.query.q || '').trim();
   const limit = Math.min(parseInt(req.query.limit || '20', 10), 50);
   const query = q
@@ -916,11 +920,11 @@ router.get('/users', authRequired, requireRole('any'), async (req, res) => {
     : {};
   const users = await User.find(query).select('_id name email').limit(limit).sort({ name: 1 });
   res.json(users);
-});
+}));
 
 // GET /runsheets/:id/items  -> grouped items with totals + line occurrences
 // Optional: ?populate=1  to include minimal Item data for entries that have an itemId
-router.get('/:id/items', async (req, res, next) => {
+router.get('/:id/items', authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { id } = req.params;
     const populate = String(req.query.populate || '') === '1';
@@ -953,7 +957,7 @@ router.get('/:id/items', async (req, res, next) => {
       items
     });
   } catch (e) { next(e); }
-});
+}));
 
 export default router;
 

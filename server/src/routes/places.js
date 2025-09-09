@@ -2,6 +2,8 @@ import { Router } from 'express';
 import Place from '../models/Place.js';
 import { authRequired, requireSiteAuthorized } from '../middleware/auth.js';
 import { upload } from '../utils/uploader.js';
+import { resolveTenant } from '../middleware/tenant.js';
+import { withTenant } from '../utils/withTenant.js';
 
 const router = Router();
 const MAPS_KEY = process.env.GOOGLE_MAPS_API_KEY;
@@ -63,7 +65,7 @@ function sanitizePatchPayload(body = {}) {
 }
 
   
-  router.post('/', authRequired, requireSiteAuthorized, async (req, res) => {
+  router.post('/', authRequired, requireSiteAuthorized, resolveTenant, withTenant( async (req, res) => {
     try {
       const payload = sanitizeCreatePayload(req.body);
       const p = await Place.create({ ...payload, createdBy: req.user._id });
@@ -74,10 +76,10 @@ function sanitizePatchPayload(body = {}) {
       }
       res.status(500).json({ error: 'Failed to create place', detail: err.message });
     }
-  });
+  }));
 
 /** IMPORT via Google Place ID (idempotent) */
-router.post('/import', authRequired, requireSiteAuthorized, async (req, res) => {
+router.post('/import', authRequired, requireSiteAuthorized, authRequired,resolveTenant, withTenant( async (req, res) => {
   try {
     const { googlePlaceId } = req.body;
     if (!googlePlaceId) return res.status(400).json({ error: 'googlePlaceId required' });
@@ -135,10 +137,10 @@ router.post('/import', authRequired, requireSiteAuthorized, async (req, res) => 
     }
     res.status(500).json({ error: 'Failed to import place', detail: err.message });
   }
-});
+}));
 
 /** LIST */
-router.get('/', authRequired, requireSiteAuthorized, async (req, res) => {
+router.get('/', authRequired, requireSiteAuthorized, resolveTenant, withTenant( async (req, res) => {
   try {
     const q = (req.query.q || '').trim();
     const filter = q
@@ -154,10 +156,10 @@ router.get('/', authRequired, requireSiteAuthorized, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to list places', detail: err.message });
   }
-});
+}));
 
 /** READ */
-router.get('/:id', authRequired, requireSiteAuthorized, async (req, res) => {
+router.get('/:id', authRequired, requireSiteAuthorized, resolveTenant, withTenant( async (req, res) => {
   try {
     const p = await Place.findById(req.params.id);
     if (!p) return res.status(404).json({ error: 'Not found' });
@@ -165,10 +167,10 @@ router.get('/:id', authRequired, requireSiteAuthorized, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch place', detail: err.message });
   }
-});
+}));
 
 /** UPDATE */
-router.patch('/:id', authRequired, requireSiteAuthorized, async (req, res) => {
+router.patch('/:id', authRequired, requireSiteAuthorized, resolveTenant, withTenant( async (req, res) => {
   try {
     const update = sanitizePatchPayload(req.body);
     const options = { new: true, runValidators: true };
@@ -181,20 +183,20 @@ router.patch('/:id', authRequired, requireSiteAuthorized, async (req, res) => {
     }
     res.status(500).json({ error: 'Failed to update place', detail: err.message });
   }
-});
+}));
 
 /** DELETE */
-router.delete('/:id', authRequired, requireSiteAuthorized, async (req, res) => {
+router.delete('/:id', authRequired, requireSiteAuthorized, resolveTenant, withTenant( async (req, res) => {
   try {
     await Place.findByIdAndDelete(req.params.id);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete place', detail: err.message });
   }
-});
+}));
 
 /** ADD PHOTOS */
-router.post('/:id/photos', authRequired, requireSiteAuthorized, upload.array('photos', 6), async (req, res) => {
+router.post('/:id/photos', authRequired, requireSiteAuthorized, resolveTenant, withTenant( upload.array('photos', 6), async (req, res) => {
   try {
     const p = await Place.findById(req.params.id);
     if (!p) return res.status(404).json({ error: 'Not found' });
@@ -210,10 +212,10 @@ router.post('/:id/photos', authRequired, requireSiteAuthorized, upload.array('ph
   } catch (err) {
     res.status(500).json({ error: 'Failed to add photos', detail: err.message });
   }
-});
+}));
 
 /** REMOVE PHOTO */
-router.delete('/:id/photos', authRequired, requireSiteAuthorized, async (req, res) => {
+router.delete('/:id/photos', authRequired, requireSiteAuthorized, resolveTenant, withTenant( async (req, res) => {
   try {
     const { url } = req.body;
     const p = await Place.findById(req.params.id);
@@ -225,6 +227,6 @@ router.delete('/:id/photos', authRequired, requireSiteAuthorized, async (req, re
   } catch (err) {
     res.status(500).json({ error: 'Failed to remove photo', detail: err.message });
   }
-});
+}));
 
 export default router;

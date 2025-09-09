@@ -1,6 +1,8 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import Supplier from '../models/Supplier.js';
+import { resolveTenant } from '../middleware/tenant.js';
+import { withTenant } from '../utils/withTenant.js';
 import { authRequired, requireSiteAuthorized, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -26,7 +28,7 @@ function buildFindQuery(qString) {
 }
 
 // ----------------------------- List / Create -------------------------------
-router.get('/', async (req, res, next) => {
+router.get('/', authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const query = buildFindQuery(req.query.q);
     const list = await Supplier.find(query)
@@ -35,9 +37,9 @@ router.get('/', async (req, res, next) => {
       .lean();
     res.json(list);
   } catch (e) { next(e); }
-});
+}));
 
-router.post('/', async (req, res, next) => {
+router.post('/',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { name, address, phone, contactName, hours, location } = req.body || {};
 
@@ -60,18 +62,18 @@ router.post('/', async (req, res, next) => {
 
     res.status(201).json(await Supplier.findById(doc._id).lean());
   } catch (e) { next(e); }
-});
+}));
 
 // ----------------------------- Read / Update / Delete ----------------------
-router.get('/:id', async (req, res, next) => {
+router.get('/:id',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const s = await Supplier.findById(req.params.id).lean();
     if (!s) return res.status(404).json({ error: 'Not found' });
     res.json(s);
   } catch (e) { next(e); }
-});
+}));
 
-router.patch('/:id', async (req, res, next) => {
+router.patch('/:id',authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const { name, address, phone, contactName, hours, location } = req.body || {};
     const update = {};
@@ -92,9 +94,9 @@ router.patch('/:id', async (req, res, next) => {
     await Supplier.findByIdAndUpdate(req.params.id, { $set: update }, { new: false });
     res.json(await Supplier.findById(req.params.id).lean());
   } catch (e) { next(e); }
-});
+}));
 
-router.delete('/:id', requireRole('admin'), async (req, res, next) => {
+router.delete('/:id', requireRole('admin'),authRequired,resolveTenant, withTenant( async (req, res, next) => {
   try {
     const s = await Supplier.findById(req.params.id);
     if (!s) return res.status(404).json({ error: 'Not found' });
@@ -102,6 +104,6 @@ router.delete('/:id', requireRole('admin'), async (req, res, next) => {
     await Supplier.deleteOne({ _id: s._id });
     res.json({ ok: true });
   } catch (e) { next(e); }
-});
+}));
 
 export default router;

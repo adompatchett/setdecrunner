@@ -4,7 +4,7 @@
     <div class="nav__logo">
       <img src="/logo.png" alt="Set Dec Runner Logo" />
       <div class="nav__logo-texts">
-        <span class="nav__logo-text">Set Dec Runner</span>
+       
         <!-- Production Label -->
         <div class="nav__production">
           {{ company.companyProduction }}

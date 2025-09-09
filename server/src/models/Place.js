@@ -1,4 +1,6 @@
 import mongoose from 'mongoose';
+import { tenantScopePlugin } from '../plugins/tenantScope.js';
+
 
 const PlaceSchema = new mongoose.Schema(
   {
@@ -17,5 +19,7 @@ const PlaceSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+PlaceSchema.plugin(tenantScopePlugin);
 
 export default mongoose.model('Place', PlaceSchema);

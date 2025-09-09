@@ -4,11 +4,14 @@ import User from '../models/User.js';
 import { authRequired, requireRole } from '../middleware/auth.js';
 import crypto from 'crypto';
 import { sendMail } from '../utils/mailer.js'; // make sure this file also exports ESM
+import { resolveTenant } from '../middleware/tenant.js';
+import { withTenant } from '../utils/withTenant.js';
+import { resolve } from 'path';
 const router = Router();
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-router.post('/users', authRequired, requireRole('admin'), async (req, res, next) => {
+router.post('/users', authRequired, requireRole('admin'),resolveTenant,withTenant(async (req, res, next) => {
   try {
     const { email, firstName, lastName, username, role = 'user', siteAuthorized = false } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
@@ -56,6 +59,6 @@ router.post('/users', authRequired, requireRole('admin'), async (req, res, next)
 
     res.json({ ok: true, userId: user._id });
   } catch (e) { next(e); }
-});
+}));
 
 export default router;
