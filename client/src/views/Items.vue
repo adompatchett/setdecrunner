@@ -1,262 +1,419 @@
 <template>
-    <div>
-      <NavBar :me="me" @logout="logout" />
-  
-      <div class="container">
-        <!-- Toolbar -->
-        <div class="toolbar card">
-          <input v-model="q" placeholder="Search items (name, text index)" class="input input--grow" />
-          <select v-model="filterPlaceId" class="select">
-            <option :value="''">All places</option>
-            <option v-for="p in placeFilterOpts" :key="p._id" :value="p._id">{{ p.name }}</option>
-          </select>
-          <button class="btn" @click="load">Search</button>
-          <button class="btn btn--primary" @click="createItem">New Item</button>
-          <span class="spacer"></span>
-          <span class="muted" v-if="lastUpdated">Updated {{ lastUpdated }}</span>
+  <div>
+    <NavBar :me="me" @logout="logout" />
+
+    <div class="container">
+      <!-- Toolbar -->
+      <div class="toolbar card">
+        <input v-model="q" placeholder="Search items (name, text index)" class="input input--grow" />
+        <select v-model="filterPlaceId" class="select">
+          <option :value="''">All places</option>
+          <option v-for="p in placeFilterOpts" :key="p._id" :value="p._id">{{ p.name }}</option>
+        </select>
+        <button class="btn" @click="load">Search</button>
+        <button class="btn btn--primary" @click="createItem">New Item</button>
+        <span class="spacer"></span>
+        <span class="muted" v-if="lastUpdated">Updated {{ lastUpdated }}</span>
+      </div>
+
+      <!-- Map Panel -->
+      <div class="card map-card">
+        <div class="map-head">
+          <div class="map-title">Item Locations</div>
+          <div class="muted small" v-if="mapStatus">{{ mapStatus }}</div>
         </div>
-  
-        <!-- List -->
-        <div v-if="loading" class="muted">Loading…</div>
-  
-        <div v-else class="list">
-          <div v-for="it in list" :key="it._id" class="card item">
-            <div class="item__main">
-              <div class="item__title">
-                <div class="name">{{ it.name }}</div>
-                <span class="qty">(x{{ it.quantity }})</span>
-              </div>
-              <div class="meta" v-if="it.location?.name">{{ it.location.name }}</div>
-              <div class="desc" v-if="it.description">{{ it.description }}</div>
-  
-              <div class="thumbs">
-                <img
-                  v-for="p in it.photos || []"
-                  :key="p"
-                  :src="imageUrl(p)"
-                  class="thumb"
-                  alt="Item photo"
-                />
-              </div>
+        <div ref="mapEl" class="map"></div>
+      </div>
+
+      <!-- List -->
+      <div v-if="loading" class="muted">Loading…</div>
+
+      <div v-else class="list">
+        <div v-for="it in list" :key="it._id" class="card item">
+          <div class="item__main">
+            <div class="item__title">
+              <div class="name">{{ it.name }}</div>
+              <span class="qty">(x{{ it.quantity }})</span>
             </div>
-  
-            <div class="item__actions">
-              <button class="btn" @click="edit(it)">Edit</button>
-              <button class="btn btn--danger" @click="del(it)">Delete</button>
+            <div class="meta" v-if="it.location?.name">{{ it.location.name }}</div>
+            <div class="desc" v-if="it.description">{{ it.description }}</div>
+
+            <div class="thumbs">
+              <img
+                v-for="p in it.photos || []"
+                :key="p"
+                :src="imageUrl(p)"
+                class="thumb"
+                alt="Item photo"
+              />
             </div>
           </div>
-  
-          <div v-if="!list.length && !loading" class="card empty muted">
-            No items found. Try a different search.
+
+          <div class="item__actions">
+            <button class="btn" @click="edit(it)">Edit</button>
+            <button class="btn btn--danger" @click="del(it)">Delete</button>
           </div>
         </div>
-  
-        <!-- Editor Modal -->
-        <div v-if="editing" class="modal">
-          <div class="modal__card">
-            <div class="modal__head">
-              <h3 class="title">{{ editing._id ? 'Edit Item' : 'New Item' }}</h3>
-              <button class="btn" @click="editing=null">Close</button>
-            </div>
-  
-            <div class="grid">
-              <div class="field">
-                <label class="label">Name</label>
-                <input v-model="editing.name" class="input" placeholder="Lamp, sofa, etc." />
-              </div>
-  
-              <div class="field">
-                <label class="label">Quantity</label>
-                <input type="number" v-model.number="editing.quantity" min="0" class="input" />
-              </div>
-  
-              <div class="field field--full">
-                <label class="label">Description</label>
-                <textarea v-model="editing.description" rows="3" class="textarea" placeholder="Notes, condition, color, measurements…"></textarea>
-              </div>
-  
-              <!-- Location Picker -->
-              <div class="divider field--full"></div>
-              <div class="field field--full">
-                <div class="row">
-                  <div class="mini-title">Location</div>
-                  <div class="muted">Selected: {{ editing.location?.name || '(none)' }}</div>
-                </div>
-                <div class="row row--tight">
-                  <input v-model="placeQ" placeholder="Search places…" class="input input--grow" />
-                  <button class="btn" @click="searchPlaces">Search</button>
-                  <button v-if="editing.location" class="btn" @click="clearLocation">Clear</button>
-                </div>
-                <div class="pillbar">
-                  <button
-                    v-for="p in placeResults"
-                    :key="p._id"
-                    class="pill"
-                    @click="setLocation(p)"
-                  >
-                    {{ p.name }}
-                  </button>
-                </div>
-              </div>
-  
-              <!-- Photos -->
-              <div class="divider field--full"></div>
-              <div class="field field--full">
-                <div class="row row--tight">
-                  <div class="mini-title">Photos</div>
-                  <input type="file" multiple @change="uploadItemPhotos" />
-                </div>
-                <div class="thumbs thumbs--edit">
-                  <div v-for="p in editing.photos || []" :key="p" class="thumbwrap">
-                    <img :src="imageUrl(p)" class="thumb thumb--lg" />
-                    <button class="chip chip--x" @click="removeItemPhoto(p)">×</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-  
-            <div class="modal__foot">
-              <button class="btn btn--primary" @click="save" :disabled="saving">{{ saving ? 'Saving…' : 'Save' }}</button>
-            </div>
+
+        <div v-if="!list.length && !loading" class="card empty muted">
+          No items found. Try a different search.
+        </div>
+      </div>
+
+      <!-- Editor Modal (unchanged) -->
+      <!-- Editor Modal -->
+<div v-if="editing" class="modal">
+  <div class="modal__backdrop" @click="editing=null"></div>
+
+  <div class="modal__card">
+    <div class="modal__head">
+      <h3 class="title">{{ editing._id ? 'Edit Item' : 'New Item' }}</h3>
+      <button class="btn" @click="editing=null">Close</button>
+    </div>
+
+    <div class="grid">
+      <!-- Name -->
+      <div class="field">
+        <label class="label">Name</label>
+        <input v-model.trim="editing.name" class="input" placeholder="Lamp, sofa, etc." />
+      </div>
+
+      <!-- Quantity -->
+      <div class="field">
+        <label class="label">Quantity</label>
+        <input type="number" v-model.number="editing.quantity" min="0" class="input" />
+      </div>
+
+      <!-- Description -->
+      <div class="field field--full">
+        <label class="label">Description</label>
+        <textarea v-model="editing.description" rows="3" class="textarea" placeholder="Notes, condition, color, measurements…"></textarea>
+      </div>
+
+      <!-- Location Picker -->
+      <div class="divider field--full"></div>
+      <div class="field field--full">
+        <div class="row">
+          <div class="mini-title">Location</div>
+          <div class="muted">Selected: {{ editing.location?.name || '(none)' }}</div>
+        </div>
+        <div class="row row--tight">
+          <input v-model="placeQ" placeholder="Search places…" class="input input--grow" />
+          <button class="btn" @click="searchPlaces">Search</button>
+          <button v-if="editing.location" class="btn" @click="clearLocation">Clear</button>
+        </div>
+        <div class="pillbar">
+          <button
+            v-for="p in placeResults"
+            :key="p._id"
+            class="pill"
+            @click="setLocation(p)"
+          >
+            {{ p.name }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Photos -->
+      <div class="divider field--full"></div>
+      <div class="field field--full">
+        <div class="row row--tight">
+          <div class="mini-title">Photos</div>
+          <input type="file" multiple @change="uploadItemPhotos" />
+        </div>
+
+        <div class="thumbs thumbs--edit">
+          <div v-for="p in editing.photos || []" :key="p" class="thumbwrap">
+            <img :src="imageUrl(p)" class="thumb thumb--lg" alt="Item photo" />
+            <button class="chip chip--x" @click="removeItemPhoto(p)" title="Remove">×</button>
           </div>
         </div>
-  
-        <p v-if="error" class="error">{{ error }}</p>
       </div>
     </div>
-  </template>
+
+    <div class="modal__foot">
+      <button class="btn btn--primary" @click="save" :disabled="saving">
+        {{ saving ? 'Saving…' : 'Save' }}
+      </button>
+    </div>
+  </div>
+</div>
+
+      <p v-if="error" class="error">{{ error }}</p>
+    </div>
+  </div>
+</template>
   
-  <script setup>
-  import { ref, onMounted } from 'vue';
-  import NavBar from '../components/NavBar.vue';
-  import { useAuth } from '../stores/auth.js';
-  import api from '../api/index.js';
-  
-  const auth = useAuth();
-  const me = ref(null);
-  const q = ref('');
-  const filterPlaceId = ref('');
-  const placeFilterOpts = ref([]);
-  const list = ref([]);
-  const loading = ref(false);
-  const error = ref('');
-  const lastUpdated = ref('');
-  const editing = ref(null);
-  const saving = ref(false);
-  
-  const placeQ = ref('');
-  const placeResults = ref([]);
-  
-  const apiBase = (import.meta.env.VITE_API_BASE || 'http://localhost:4000/api');
-  
-  const logout = () => auth.logout();
-  const imageUrl = (p) => apiBase.replace('/api','') + p;
-  
-  const stamp = () => { lastUpdated.value = new Date().toLocaleTimeString(); };
-  
-  const loadPlacesForFilter = async () => {
-    try {
-      placeFilterOpts.value = await api.get('/places', { q: '' });
-    } catch {}
-  };
-  
-  const load = async () => {
-    loading.value = true; error.value = '';
-    try {
-      const params = { q: q.value };
-      if (filterPlaceId.value) params.placeId = filterPlaceId.value;
-      list.value = await api.get('/items', params);
-      stamp();
-    } catch (e) {
-      error.value = e?.response?.data?.error || e.message || 'Failed to load items';
-    } finally {
-      loading.value = false;
+<script setup>
+import { ref, onMounted, watch, nextTick } from 'vue';
+import NavBar from '../components/NavBar.vue';
+import { useAuth } from '../stores/auth.js';
+import api from '../api/index.js';
+
+const auth = useAuth();
+const me = ref(null);
+const q = ref('');
+const filterPlaceId = ref('');
+const placeFilterOpts = ref([]);
+const list = ref([]);
+const loading = ref(false);
+const error = ref('');
+const lastUpdated = ref('');
+const editing = ref(null);
+const saving = ref(false);
+
+const placeQ = ref('');
+const placeResults = ref([]);
+
+const apiBase = (import.meta.env.VITE_API_BASE || 'http://localhost:4000/api');
+const GMAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+
+const logout = () => auth.logout();
+const imageUrl = (p) => apiBase.replace('/api','') + p;
+
+const stamp = () => { lastUpdated.value = new Date().toLocaleTimeString(); };
+
+const loadPlacesForFilter = async () => {
+  try { placeFilterOpts.value = await api.get('/places', { q: '' }); } catch {}
+};
+
+const load = async () => {
+  loading.value = true; error.value = '';
+  try {
+    const params = { q: q.value };
+    if (filterPlaceId.value) params.placeId = filterPlaceId.value;
+    list.value = await api.get('/items', params);
+    stamp();
+    await nextTick();
+    updateMarkers(); // refresh markers after list loads
+  } catch (e) {
+    error.value = e?.response?.data?.error || e.message || 'Failed to load items';
+  } finally {
+    loading.value = false;
+  }
+};
+
+const createItem = () => {
+  editing.value = { name: 'Untitled', quantity: 1, description: '', photos: [], location: null };
+};
+const edit = (it) => { editing.value = JSON.parse(JSON.stringify(it)); };
+
+const save = async () => {
+  if (!editing.value?.name?.trim()) { error.value = 'Name is required'; return; }
+  saving.value = true; error.value = '';
+  try {
+    const payload = { ...editing.value };
+    if (payload.location && payload.location._id) payload.location = payload.location._id;
+    if (!payload.photos) payload.photos = [];
+    if (editing.value._id) {
+      editing.value = await api.patch(`/items/${editing.value._id}`, payload);
+    } else {
+      editing.value = await api.post('/items', payload);
     }
-  };
-  
-  const createItem = () => {
-    editing.value = { name: 'Untitled', quantity: 1, description: '', photos: [], location: null };
-  };
-  
-  const edit = (it) => {
-    editing.value = JSON.parse(JSON.stringify(it)); // clone
-  };
-  
-  const save = async () => {
-    if (!editing.value?.name?.trim()) { error.value = 'Name is required'; return; }
-    saving.value = true; error.value = '';
-    try {
-      const payload = { ...editing.value };
-      if (payload.location && payload.location._id) payload.location = payload.location._id;
-      if (!payload.photos) payload.photos = [];
-      if (editing.value._id) {
-        editing.value = await api.patch(`/items/${editing.value._id}`, payload);
-      } else {
-        editing.value = await api.post('/items', payload);
-      }
-      await load();
-    } catch (e) {
-      error.value = e?.response?.data?.error || 'Failed to save';
-    } finally {
-      saving.value = false;
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to save';
+  } finally {
+    saving.value = false;
+  }
+};
+
+const del = async (it) => {
+  if (!confirm(`Delete "${it.name}"?`)) return;
+  try {
+    await api.del(`/items/${it._id}`);
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to delete';
+  }
+};
+
+// Photos
+const uploadItemPhotos = async (e) => {
+  if (!editing.value?._id) {
+    await save();
+    if (!editing.value?._id) return;
+  }
+  const fd = new FormData();
+  [...e.target.files].forEach(f => fd.append('photos', f));
+  try {
+    const it = await api.post(`/items/${editing.value._id}/photos`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    editing.value = it;
+    await load();
+  } catch (e2) {
+    error.value = e2?.response?.data?.error || 'Failed to upload photos';
+  } finally {
+    e.target.value = '';
+  }
+};
+const removeItemPhoto = async (url) => {
+  try {
+    const it = await api.del(`/items/${editing.value._id}/photos`, { url });
+    editing.value = it;
+    await load();
+  } catch (e) {
+    error.value = e?.response?.data?.error || 'Failed to remove photo';
+  }
+};
+
+// Location picker
+const searchPlaces = async () => {
+  try { placeResults.value = await api.get('/places', { q: placeQ.value }); }
+  catch (e) { error.value = e?.response?.data?.error || 'Failed to search places'; }
+};
+const setLocation = (p) => { editing.value.location = p; };
+const clearLocation = () => { editing.value.location = null; };
+
+/* =======================
+   Google Maps integration
+   ======================= */
+const mapEl = ref(null);
+let map = null;
+let infoWindow = null;
+let markers = [];
+const mapStatus = ref('');
+const placeCache = new Map(); // id -> place detail
+
+function loadGoogleMaps() {
+  return new Promise((resolve, reject) => {
+    if (!GMAPS_KEY) {
+      mapStatus.value = 'Missing Google Maps API key';
+      return resolve(null);
     }
-  };
-  
-  const del = async (it) => {
-    if (!confirm(`Delete "${it.name}"?`)) return;
-    try {
-      await api.del(`/items/${it._id}`);
-      await load();
-    } catch (e) {
-      error.value = e?.response?.data?.error || 'Failed to delete';
-    }
-  };
-  
-  // Photos (requires existing _id)
-  const uploadItemPhotos = async (e) => {
-    if (!editing.value?._id) {
-      await save();
-      if (!editing.value?._id) return;
-    }
-    const fd = new FormData();
-    [...e.target.files].forEach(f => fd.append('photos', f));
-    try {
-      const it = await api.post(`/items/${editing.value._id}/photos`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      editing.value = it;
-      await load();
-    } catch (e2) {
-      error.value = e2?.response?.data?.error || 'Failed to upload photos';
-    } finally {
-      e.target.value = '';
-    }
-  };
-  
-  const removeItemPhoto = async (url) => {
-    try {
-      const it = await api.del(`/items/${editing.value._id}/photos`, { url });
-      editing.value = it;
-      await load();
-    } catch (e) {
-      error.value = e?.response?.data?.error || 'Failed to remove photo';
-    }
-  };
-  
-  // Location helpers
-  const searchPlaces = async () => {
-    try {
-      placeResults.value = await api.get('/places', { q: placeQ.value });
-    } catch (e) {
-      error.value = e?.response?.data?.error || 'Failed to search places';
-    }
-  };
-  const setLocation = (p) => { editing.value.location = p; };
-  const clearLocation = () => { editing.value.location = null; };
-  
-  onMounted(async () => {
-    me.value = await auth.fetchMe();
-    await Promise.all([load(), loadPlacesForFilter()]);
+    if (window.google?.maps) return resolve(window.google);
+    const cbName = '__gmaps_cb_' + Math.random().toString(36).slice(2);
+    const s = document.createElement('script');
+    s.async = true;
+    s.defer = true;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GMAPS_KEY)}&callback=${cbName}`;
+    s.onerror = () => reject(new Error('Failed to load Google Maps'));
+    window[cbName] = () => {
+      delete window[cbName];
+      resolve(window.google);
+    };
+    document.head.appendChild(s);
   });
-  </script>
+}
+
+function extractLatLngFromPlace(place) {
+  if (!place) return null;
+
+  // Common GeoJSON point: { type: 'Point', coordinates: [lng, lat] }
+  if (place.geo?.type === 'Point' && Array.isArray(place.geo.coordinates) && place.geo.coordinates.length >= 2) {
+    const [lng, lat] = place.geo.coordinates;
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+
+  // Direct fields: lat/lng or latitude/longitude
+  const lat = place.lat ?? place.latitude ?? place.location?.lat ?? place.coords?.lat;
+  const lng = place.lng ?? place.longitude ?? place.location?.lng ?? place.coords?.lng;
+  if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+
+  return null;
+}
+
+async function ensurePlaceDetail(locRef) {
+  // if already a populated object with _id, use it
+  if (locRef && typeof locRef === 'object' && locRef._id) {
+    return locRef;
+  }
+  // if it's a string id, fetch and cache
+  const id = typeof locRef === 'string' ? locRef : locRef?._id;
+  if (!id) return null;
+  if (placeCache.has(id)) return placeCache.get(id);
+  try {
+    const p = await api.get(`/places/${id}`);
+    placeCache.set(id, p);
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+async function buildMarkersFromList() {
+  if (!map || !Array.isArray(list.value)) return;
+
+  // clear old markers
+  markers.forEach(m => m.setMap(null));
+  markers = [];
+
+  const bounds = new google.maps.LatLngBounds();
+  let added = 0;
+
+  for (const it of list.value) {
+    const place = await ensurePlaceDetail(it.location);
+    const pos = extractLatLngFromPlace(place);
+    if (!pos) continue;
+
+    const marker = new google.maps.Marker({
+      position: pos,
+      map,
+      title: it.name || 'Item',
+    });
+
+    marker.addListener('click', () => {
+      const html = `
+        <div style="min-width:180px">
+          <div style="font-weight:700">${it.name || 'Item'}</div>
+          <div class="small">Qty: ${it.quantity ?? 1}</div>
+          <div class="small">${place?.name || 'Unknown place'}</div>
+        </div>`;
+      infoWindow.setContent(html);
+      infoWindow.open({ anchor: marker, map });
+    });
+
+    markers.push(marker);
+    bounds.extend(marker.getPosition());
+    added++;
+  }
+
+  if (added > 0) {
+    map.fitBounds(bounds);
+    mapStatus.value = `${added} location${added === 1 ? '' : 's'} plotted`;
+  } else {
+    // default viewport if nothing to show
+    map.setCenter({ lat: 43.6532, lng: -79.3832 }); // Toronto fallback
+    map.setZoom(10);
+    mapStatus.value = 'No mappable item locations';
+  }
+}
+
+async function initMapIfNeeded() {
+  if (map || !mapEl.value) return;
+  const g = await loadGoogleMaps().catch(() => null);
+  if (!g) return;
+  map = new g.maps.Map(mapEl.value, {
+    center: { lat: 43.6532, lng: -79.3832 },
+    zoom: 10,
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: true,
+  });
+  infoWindow = new g.maps.InfoWindow();
+}
+
+async function updateMarkers() {
+  await initMapIfNeeded();
+  if (!map) return;
+  buildMarkersFromList();
+}
+
+/* ======================= */
+
+onMounted(async () => {
+  me.value = await auth.fetchMe();
+  await Promise.all([load(), loadPlacesForFilter()]);
+  // Initialize map after first render
+  await nextTick();
+  updateMarkers();
+});
+
+// Update markers when list or place filter changes
+watch([list, filterPlaceId], () => {
+  updateMarkers();
+});
+</script>
+
   
   <style scoped>
   /* ---------- Layout ---------- */
@@ -438,6 +595,30 @@
     padding: 10px 12px;
     border-radius: 8px;
   }
+
+  .map-card {
+  margin-bottom: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--line-light, #3a4047);
+  overflow: hidden;
+}
+
+/* simple header above the map */
+.map-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-light, #3a4047);
+}
+.map-title { font-weight: 700; letter-spacing: .2px; }
+.small { font-size: 12px; }
+
+.map {
+  width: 100%;
+  height: 360px;       /* 👈 important: give it height */
+  background: #0f1113; /* matches your theme bg so it doesn’t flash white */
+}
   
   /* ---------- Responsive ---------- */
   @media (max-width: 760px) {

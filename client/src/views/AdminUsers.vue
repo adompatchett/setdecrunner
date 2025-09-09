@@ -15,6 +15,13 @@
         </button>
         <button class="btn" @click="reset">Reset</button>
 
+        <div class="toolbar__spacer"></div>
+
+        <!-- New: Create user -->
+        <button class="btn btn--primary" @click="openCreate" :disabled="creating">
+          + Create User
+        </button>
+
         <span class="toolbar__stamp" v-if="lastUpdated">
           Updated {{ lastUpdated }}
         </span>
@@ -74,7 +81,7 @@
                   </span>
                 </label>
               </td>
-              <td class="ucase small">{{ u.oauthProvider }}</td>
+              <td class="ucase small">{{ u.oauthProvider || u.provider || 'local' }}</td>
               <td class="small">{{ shortDate(u.createdAt) }}</td>
               <td class="text-right">
                 <button class="btn btn--ghost" @click="view(u)">View</button>
@@ -94,6 +101,7 @@
       </div>
 
       <p v-if="error" class="error">{{ error }}</p>
+      <p v-if="notice" class="notice">{{ notice }}</p>
     </div>
 
     <!-- Profile Modal -->
@@ -120,7 +128,7 @@
           </div>
           <div>
             <div class="label small">Provider</div>
-            <div class="mono ucase">{{ active.oauthProvider }}</div>
+            <div class="mono ucase">{{ active.oauthProvider || active.provider || 'local' }}</div>
           </div>
           <div>
             <div class="label small">Authorized</div>
@@ -157,11 +165,50 @@
         </div>
       </div>
     </div>
+
+    <!-- Create User Modal -->
+    <div v-if="createOpen" class="modal">
+      <div class="modal__backdrop" @click="closeCreate"></div>
+      <div class="modal__card">
+        <div class="modal__head">
+          <h3 class="title">Create User & Send Invite</h3>
+          <button class="btn btn--ghost" @click="closeCreate">Close</button>
+        </div>
+
+        <form class="grid" @submit.prevent="createUser">
+          <input class="input" v-model.trim="createForm.firstName" placeholder="First name" />
+          <input class="input" v-model.trim="createForm.lastName" placeholder="Last name" />
+          <input class="input" v-model.trim="createForm.email" placeholder="Email" type="email" required />
+          <input class="input" v-model.trim="createForm.username" placeholder="Username (optional)" />
+
+          <div class="row gap-2">
+            <label class="label small">Role</label>
+            <select class="select" v-model="createForm.role">
+              <option value="user">user</option>
+              <option value="driver">driver</option>
+              <option value="admin">admin</option>
+            </select>
+          </div>
+
+          <label class="check">
+            <input type="checkbox" v-model="createForm.siteAuthorized" />
+            <span>Authorize site access immediately</span>
+          </label>
+
+          <div class="modal__foot">
+            <button class="btn btn--primary" :disabled="creating">
+              {{ creating ? 'Sending Invite…' : 'Create & Send Invite' }}
+            </button>
+            <span class="muted small" v-if="createError">{{ createError }}</span>
+            <span class="small" v-if="createMsg">{{ createMsg }}</span>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-/* your existing script as-is */
 import { ref, onMounted } from 'vue';
 import NavBar from '../components/NavBar.vue';
 import { useAuth } from '../stores/auth.js';
@@ -174,10 +221,25 @@ const q = ref('');
 const list = ref([]);
 const loading = ref(false);
 const error = ref('');
+const notice = ref('');
 const savingId = ref('');
 const lastUpdated = ref('');
 
 const active = ref(null); // currently viewed profile
+
+// Create modal state
+const createOpen = ref(false);
+const creating = ref(false);
+const createForm = ref({
+  firstName: '',
+  lastName: '',
+  email: '',
+  username: '',
+  role: 'user',
+  siteAuthorized: false,
+});
+const createError = ref('');
+const createMsg = ref('');
 
 const logout = () => auth.logout();
 
@@ -216,6 +278,8 @@ const save = async (u) => {
     const body = { role: u.role, siteAuthorized: !!u.siteAuthorized, banned: !!u.banned };
     const updated = await api.patch(`/users/${u._id}`, body);
     Object.assign(u, updated);
+    notice.value = 'Changes saved';
+    setTimeout(() => (notice.value = ''), 1200);
   } catch (e) {
     error.value = e?.response?.data?.error || 'Failed to update user';
     await reloadSingle(u._id);
@@ -264,6 +328,44 @@ const reloadSingle = async (id) => {
     if (idx >= 0) list.value[idx] = fresh;
     if (active.value?._id === id) active.value = fresh;
   } catch { /* ignore */ }
+};
+
+// ---- Create user modal handlers ----
+const openCreate = () => {
+  createError.value = '';
+  createMsg.value = '';
+  createOpen.value = true;
+};
+const closeCreate = () => {
+  createOpen.value = false;
+  createForm.value = { firstName: '', lastName: '', email: '', username: '', role: 'user', siteAuthorized: false };
+};
+
+const createUser = async () => {
+  try {
+    createError.value = '';
+    createMsg.value = '';
+    if (!createForm.value.email) { createError.value = 'Email is required'; return; }
+    creating.value = true;
+
+    // IMPORTANT: This hits the admin invite endpoint that issues an email + reset link
+    await api.post('/admin/users', {
+      firstName: createForm.value.firstName || undefined,
+      lastName:  createForm.value.lastName  || undefined,
+      email:     createForm.value.email,
+      username:  createForm.value.username || undefined,
+      role:      createForm.value.role,
+      siteAuthorized: !!createForm.value.siteAuthorized
+    });
+
+    createMsg.value = 'Invitation sent';
+    await load();            // refresh list so the new user appears
+    setTimeout(() => { closeCreate(); }, 600);
+  } catch (e) {
+    createError.value = e?.response?.data?.error || e.message || 'Failed to create user';
+  } finally {
+    creating.value = false;
+  }
 };
 
 onMounted(async () => {

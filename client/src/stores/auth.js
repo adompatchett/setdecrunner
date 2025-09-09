@@ -48,6 +48,16 @@ export const useAuth = defineStore('auth', {
 
       // Redirect to login screen
       router.push('/login');
-    }
+    },
+    async registerLocal(payload) {
+        const { token } = await api.post('/auth/register', payload);
+        this.setToken(token);
+        return this.fetchMe();
+      },
+      async loginLocal(payload) {
+        const { token } = await api.post('/auth/login', payload);
+        this.setToken(token);
+        return this.fetchMe();
+      }
   }
 });

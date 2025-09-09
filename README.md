@@ -1,2 +1,2 @@
 # setdecrunner
-An application for set decoration.
+An application for set decoration. 

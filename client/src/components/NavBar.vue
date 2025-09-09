@@ -3,35 +3,105 @@
     <!-- Logo -->
     <div class="nav__logo">
       <img src="/logo.png" alt="Set Dec Runner Logo" />
-      <span class="nav__logo-text">Set Dec Runner</span>
+      <div class="nav__logo-texts">
+       
+        <!-- Production Label -->
+        <div class="nav__production">
+          {{ company.companyProduction }}
+        </div>
+      </div>
     </div>
 
     <!-- Navigation Links -->
     <div class="nav__links">
-      <RouterLink class="nav__link" to="/">Dashboard</RouterLink>
-      <RouterLink class="nav__link" to="/runsheets">Run Sheets</RouterLink>
-      <RouterLink class="nav__link" to="/items">Items</RouterLink>
-      <RouterLink class="nav__link" to="/places">Places</RouterLink>
+      <RouterLink class="nav__link" to="/" draggable="false">Dashboard</RouterLink>
+      <RouterLink class="nav__link" to="/runsheets" draggable="false">Run Sheets</RouterLink>
+      <RouterLink class="nav__link" to="/sets" draggable="false">Sets</RouterLink>
+      <RouterLink class="nav__link" to="/people" draggable="false">People</RouterLink>
+      <RouterLink class="nav__link" to="/items" draggable="false">Items</RouterLink>
+      <RouterLink class="nav__link" to="/places" draggable="false">Places</RouterLink>
+      <RouterLink class="nav__link" to="/suppliers" draggable="false">Suppliers</RouterLink>
+
+      <!-- 🔑 Admin-only: Create Users -->
       <RouterLink
-        v-if="me?.role==='admin'"
-        class="nav__link"
+        v-if="userRole === 'admin'"
+        class="nav__link nav__link--admin"
         to="/admin/users"
-      >Admin</RouterLink>
+        draggable="false"
+      >
+        Create Users
+      </RouterLink>
     </div>
 
     <!-- User Info -->
     <div class="nav__right">
-      <img v-if="me?.photo" :src="me.photo" class="nav__avatar" alt="Profile" />
-      <span class="nav__name" :title="me?.name">{{ me?.name }}</span>
+      <img
+        v-if="photoSrc"
+        :src="photoSrc"
+        class="nav__avatar"
+        :alt="displayName || 'Profile'"
+        draggable="false"
+      />
+      <span class="nav__name" :title="displayName">{{ displayName }}</span>
       <button class="btn btn--ghost" @click="$emit('logout')">Logout</button>
     </div>
   </nav>
 </template>
 
 <script setup>
-const props = defineProps({ me: Object });
-</script>
+import { computed } from 'vue';
+import { RouterLink } from 'vue-router';
+import { useAuth } from '../stores/auth.js';
+import company from '../config/company.js';  // ⬅️ import the production name
 
+const props = defineProps({ me: { type: Object, default: null } });
+defineEmits(['logout']);
+
+const auth = useAuth();
+const user = computed(() => props.me || auth.user || null);
+const userRole = computed(() => user.value?.role || auth.user?.role || '');
+
+const displayName = computed(() =>
+  user.value?.name || user.value?.fullName || user.value?.displayName || user.value?.email || ''
+);
+
+const rawPhoto = computed(() => {
+  const u = user.value || {};
+  return (
+    u.photo || u.avatar || u.photoUrl || u.photoURL || u.picture ||
+    u.image?.url || u.image || u.providerData?.[0]?.photoURL ||
+    u.photos?.[0]?.value || u.profile?._json?.picture ||
+    u.profile?.picture || u.profile?.photos?.[0]?.value || ''
+  );
+});
+
+const rawApiBase = (import.meta.env.VITE_API_BASE || 'http://localhost:4000/api').replace(/\/+$/, '');
+const apiOrigin  = rawApiBase.replace(/\/api\/?$/, '') || window.location.origin;
+
+function normalizePhoto(p) {
+  if (!p) return '';
+  if (/^(?:https?:)?\/\//i.test(p) || p.startsWith('data:')) {
+    if (p.startsWith('//')) return `https:${p}`;
+    if (location.protocol === 'https:' && p.startsWith('http:')) p = p.replace(/^http:/i, 'https:');
+    try {
+      const u = new URL(p, location.origin);
+      if (/\bgoogleusercontent\.com$/i.test(u.hostname) && !/[?&]sz=|[?&]s=\d+/i.test(u.search)) {
+        u.search += (u.search ? '&' : '?') + 'sz=128';
+        return u.toString();
+      }
+    } catch {}
+    return p;
+  }
+  let s = String(p).replace(/\\/g, '/');
+  const idx = s.indexOf('/uploads/');
+  if (idx !== -1) s = s.slice(idx);
+  if (!s.startsWith('/')) s = `/${s}`;
+  if (!s.startsWith('/uploads/')) s = s.replace(/^\/+/, '/uploads/');
+  return `${apiOrigin}${s}`;
+}
+
+const photoSrc = computed(() => normalizePhoto(rawPhoto.value));
+</script>
 <style scoped>
 /* ---- Layout ---- */
 .nav {
@@ -66,6 +136,13 @@ const props = defineProps({ me: Object });
   font-weight: 600;
   font-size: 16px;
   color: #222;
+}
+
+.nav__production {
+  font-size: 12px;
+  font-weight: 500;
+  color: #ccc;
+  margin-top: 2px;
 }
 
 /* ---- Links ---- */

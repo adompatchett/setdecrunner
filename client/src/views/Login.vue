@@ -1,28 +1,75 @@
 <template>
   <div class="login">
-     
     <div class="login__card">
       <p class="login__subtitle">Sign in to continue</p>
+
       <!-- Logo -->
-     <div class="nav__logo">
-      <img src="/logo.png" alt="Set Dec Runner Logo" />
-      
-    </div>
-      <a class="btn btn--google" :href="api + '/auth/google'">
-        Continue with Google
-      </a>
-      <a class="btn btn--facebook" :href="api + '/auth/facebook'">
-        Continue with Facebook
-      </a>
+      <div class="nav__logo">
+        <img src="/logo.png" alt="Set Dec Runner Logo" />
+      </div>
+
+      <!-- OAuth buttons -->
+      <div class="mb-3 flex col gap-2">
+        <a class="btn btn--google w-full" :href="api + '/auth/google'">Continue with Google</a>
+        <a class="btn btn--facebook w-full" :href="api + '/auth/facebook'">Continue with Facebook</a>
+      </div>
+
+      <!-- Divider -->
+      <div class="divider">or use email</div>
+
+      <!-- Tabs -->
+      <div class="pillbar mb-3">
+        <button type="button" class="pill" :class="{ 'pill--active': mode==='signin' }" @click="mode='signin'">
+          Sign in
+        </button>
+        <button type="button" class="pill" :class="{ 'pill--active': mode==='signup' }" @click="mode='signup'">
+          Create account
+        </button>
+      </div>
+
+      <!-- Sign in (local) -->
+      <form v-if="mode==='signin'" class="flex col gap-2" @submit.prevent="onSignIn">
+        <input
+          class="input"
+          type="text"
+          v-model.trim="signin.identifier"
+          placeholder="Email or Username"
+          autocomplete="username"
+          required
+        />
+        <input
+          class="input"
+          type="password"
+          v-model="signin.password"
+          placeholder="Password"
+          autocomplete="current-password"
+          required
+        />
+        <button class="btn btn--primary w-full" :disabled="loading">
+          {{ loading ? 'Signing in…' : 'Sign in' }}
+        </button>
+      </form>
+
+      <!-- Sign up (local) -->
+      <form v-else class="flex col gap-2" @submit.prevent="onSignUp">
+        <div class="row gap-2">
+          <input class="input" type="text" v-model.trim="signup.firstName" placeholder="First name" required />
+          <input class="input" type="text" v-model.trim="signup.lastName" placeholder="Last name" required />
+        </div>
+        <input class="input" type="email" v-model.trim="signup.email" placeholder="Email" autocomplete="email" required />
+        <input class="input" type="text" v-model.trim="signup.username" placeholder="Username (optional)" autocomplete="username" />
+        <input class="input" type="password" v-model="signup.password" placeholder="Password (min 8 chars)" autocomplete="new-password" required />
+        <input class="input" type="password" v-model="signup.password2" placeholder="Confirm password" autocomplete="new-password" required />
+        <button class="btn btn--primary w-full" :disabled="loading">
+          {{ loading ? 'Creating…' : 'Create account' }}
+        </button>
+      </form>
 
       <div class="login__info">
         <p v-if="redirecting">Signing you in…</p>
-        <p v-else>
-          After authenticating, you’ll be redirected back here automatically.
-        </p>
+        <p v-else>After authenticating, you’ll be redirected back here automatically.</p>
         <p class="login__note">
-          First user to sign in becomes <span class="bold">admin</span> and is
-          auto-authorized for the site.
+          First user to sign in becomes <span class="bold">admin</span> and is auto-authorized for the site.
         </p>
       </div>
 
@@ -40,8 +87,54 @@ const router = useRouter();
 const auth = useAuth();
 const api = import.meta.env.VITE_API_BASE || 'http://localhost:4000/api';
 
+const mode = ref('signin'); // 'signin' | 'signup'
 const redirecting = ref(false);
+const loading = ref(false);
 const error = ref('');
+
+const signin = ref({ identifier: '', password: '' });
+const signup = ref({ firstName: '', lastName: '', email: '', username: '', password: '', password2: '' });
+
+function validateSignup() {
+  if (!signup.value.firstName || !signup.value.lastName) return 'Please enter your first and last name.';
+  if (signup.value.password.length < 8) return 'Password must be at least 8 characters.';
+  if (signup.value.password !== signup.value.password2) return 'Passwords do not match.';
+  return '';
+}
+
+async function onSignIn() {
+  try {
+    error.value = '';
+    loading.value = true;
+    await auth.loginLocal({ identifier: signin.value.identifier, password: signin.value.password });
+    router.replace('/');
+  } catch (e) {
+    error.value = e?.response?.data?.error || e.message || 'Sign in failed';
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function onSignUp() {
+  try {
+    error.value = '';
+    const ve = validateSignup();
+    if (ve) { error.value = ve; return; }
+    loading.value = true;
+    await auth.registerLocal({
+      firstName: signup.value.firstName,
+      lastName:  signup.value.lastName,
+      email:     signup.value.email,
+      username:  signup.value.username || undefined,
+      password:  signup.value.password,
+    });
+    router.replace('/');
+  } catch (e) {
+    error.value = e?.response?.data?.error || e.message || 'Registration failed';
+  } finally {
+    loading.value = false;
+  }
+}
 
 onMounted(async () => {
   try {
@@ -68,127 +161,146 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* Page layout */
 .login {
-  height: 100vh;
-  display: grid;
-  place-items: center;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   background: #f5f6fa;
   font-family: Arial, sans-serif;
 }
 
 .login__card {
   background: #fff;
-  border: 1px solid #ddd;
-  padding: 28px 24px;
-  border-radius: 8px;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-  text-align: center;
+  border: 1px solid #e3e6eb;
+  border-radius: 10px;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.1);
+  padding: 32px 28px;
   width: 100%;
-  max-width: 360px;
-  overflow: hidden; /* prevent button spill */
-}
-
-/* Ensure padding + border are included in width */
-.login__card,
-.login__card * {
-  box-sizing: border-box;
-}
-
-/* Title + subtitle */
-.login__title {
-  font-size: 22px;
-  font-weight: 700;
-  margin-bottom: 4px;
-  color: #222;
+  max-width: 420px;
+  text-align: center;
+  animation: fadeIn 0.3s ease-out;
 }
 
 .login__subtitle {
-  font-size: 13px;
+  font-size: 15px;
   color: #666;
   margin-bottom: 20px;
 }
 
-/* Logo */
 .nav__logo {
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 20px;
 }
-
 .nav__logo img {
-  height: 72px;     /* reduced so it doesn’t crowd */
-  max-width: 100%;
+  height: 80px;
   width: auto;
 }
 
-.nav__logo-text {
-  font-weight: 600;
-  font-size: 16px;
-  color: #222;
-  white-space: nowrap;
+.divider {
+  position: relative;
+  text-align: center;
+  font-size: 13px;
+  color: #999;
+  margin: 16px 0;
+}
+.divider::before,
+.divider::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 40%;
+  height: 1px;
+  background: #ddd;
+}
+.divider::before { left: 0; }
+.divider::after { right: 0; }
+
+.pillbar {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+.pill {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid #ddd;
+  background: #f9f9f9;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.pill--active {
+  background: #222;
+  color: #fff;
+  border-color: #222;
 }
 
-/* Buttons */
-.btn {
-  display: block;
-  width: 100%;
-  padding: 10px 14px;
-  margin-bottom: 10px;
-  border-radius: 6px;
+.input {
   border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 10px;
   font-size: 14px;
-  font-weight: 500;
-  text-decoration: none;
-  color: #222;
-  transition: background 0.2s ease, border-color 0.2s ease;
-  box-sizing: border-box; /* key fix */
+  width: 100%;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.input:focus {
+  border-color: #555;
 }
 
-.btn:hover {
-  background: #f2f2f2;
-  border-color: #bbb;
+.btn {
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+}
+.btn.w-full { width: 100%; }
+
+.btn--primary {
+  background: #222;
+  color: #fff;
+  border: none;
+}
+.btn--primary:disabled {
+  background: #888;
+  cursor: not-allowed;
 }
 
 .btn--google {
   background: #fff;
+  color: #444;
+  border: 1px solid #ddd;
 }
-
 .btn--facebook {
-  background: #3b5998;
+  background: #1877f2;
   color: #fff;
-  border-color: #3b5998;
-}
-.btn--facebook:hover {
-  background: #334d84;
-  border-color: #334d84;
+  border: none;
 }
 
-/* Info text */
 .login__info {
-  font-size: 11px;
+  font-size: 13px;
   color: #555;
-  margin-top: 12px;
-  line-height: 1.5;
+  margin-top: 18px;
 }
-
 .login__note {
+  font-size: 12px;
+  color: #777;
   margin-top: 8px;
 }
+.bold { font-weight: 700; }
 
-.bold {
-  font-weight: bold;
+.login__error {
+  color: #d93025;
+  margin-top: 12px;
+  font-size: 13px;
 }
 
-/* Error message */
-.login__error {
-  color: #b00020;
-  font-size: 12px;
-  margin-top: 12px;
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>
-
-
-  
