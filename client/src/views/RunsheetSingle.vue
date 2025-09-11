@@ -1,0 +1,638 @@
+<!-- client/src/views/RunSheetSingle.vue -->
+<template>
+    <div class="page">
+      <!-- Hide NavBar on print -->
+      <div class="no-print">
+        <NavBar :me="me" @logout="logout" />
+      </div>
+  
+      <div class="sheet-wrap">
+        <!-- IMPORTANT: ref used for print capture -->
+        <div class="sheet" ref="sheetEl">
+          <!-- Header -->
+          <div class="row header">
+            <div class="h-left">
+              <div class="label">PURCHASE / RENTAL:</div>
+            </div>
+            <div class="h-center">
+              <div class="title">SET DECORATION</div>
+              <div class="subtitle">TRANSPORT / RENTAL</div>
+            </div>
+            <div class="h-right">
+              <div class="line-pair">
+                <span>Set:&nbsp;</span><span class="line">{{ setLabel || ' ' }}</span>
+              </div>
+              <div class="line-pair">
+                <span>#&nbsp;</span><span class="line line--short">{{ shortId }}</span>
+              </div>
+            </div>
+          </div>
+  
+          <!-- Pick/Return dates -->
+          <div class="row dates">
+            <div class="half">
+              <span class="box" :class="{checked: !!rs?.pickupDate}"></span>
+              <span>Pick-Up Date:&nbsp;</span><span class="line">{{ fmt(rs?.pickupDate) || ' ' }}</span>
+            </div>
+            <div class="half">
+              <span class="box" :class="{checked: !!rs?.returnDate}"></span>
+              <span>Return Date:&nbsp;</span><span class="line">{{ fmt(rs?.returnDate) || ' ' }}</span>
+            </div>
+          </div>
+  
+          <!-- Address / Supplier -->
+          <div class="row addr-supplier">
+            <div class="panel addr">
+              <div class="addr-line strong">{{ companyBlock.name }}</div>
+              <div class="addr-line" v-if="companyBlock.showTitle">"{{ companyBlock.title }}"</div>
+              <div class="addr-line" v-if="companyBlock.addr1">{{ companyBlock.addr1 }}</div>
+              <div class="addr-line" v-if="companyBlock.addr2">{{ companyBlock.addr2 }}</div>
+              <div class="addr-line" v-if="companyBlock.addr3">{{ companyBlock.addr3 }}</div>
+              <div class="addr-line" v-if="companyBlock.phone">{{ companyBlock.phone }}</div>
+            </div>
+  
+            <div class="panel supplier">
+              <div class="field"><span class="label-sm">SUPPLIER:</span><span class="fill">{{ supplierName }}</span></div>
+              <div class="field"><span class="fill">{{ supplierLine2 }}</span></div>
+              <div class="field"><span class="fill">{{ supplierLine3 }}</span></div>
+              <div class="field"><span class="fill">{{ supplierLine4 }}</span></div>
+              <div class="field"><span class="label-sm">TEL:</span><span class="fill">{{ supplierPhone }}</span></div>
+              <div class="field">
+                <span class="label-sm">CONTACT:</span><span class="fill">{{ supplierContact }}</span>
+                <span class="label-sm hrs">HOURS</span><span class="fill fill--hrs">{{ supplierHours }}</span>
+              </div>
+            </div>
+          </div>
+  
+          <!-- Items table -->
+          <div class="table">
+            <div class="thead">
+              <div class="th th-item">ITEM</div>
+              <div class="th th-desc">DESCRIPTION</div>
+            </div>
+            <div class="tbody">
+              <div class="tr" v-for="(row, i) in tableRows" :key="i">
+                <div class="td td-item">{{ row.item }}</div>
+                <div class="td td-desc">{{ row.desc }}</div>
+              </div>
+            </div>
+          </div>
+  
+          <!-- Destination + Contacts + Purchase/Payment -->
+          <div class="row lower">
+            <!-- Destination choices -->
+            <div class="panel dest">
+              <div class="checkline">
+                <span class="box" :class="{checked: rs?.postLocation==='hold_on_truck'}"></span>
+                <span>HOLD ON TRUCK</span>
+              </div>
+              <div class="checkline">
+                <span class="box" :class="{checked: rs?.postLocation==='setdec_storage'}"></span>
+                <span>SET DEC STORAGE</span>
+                <span class="fillline"></span>
+              </div>
+              <div class="checkline">
+                <span class="box" :class="{checked: rs?.postLocation==='office'}"></span>
+                <span>OFFICE</span>
+                <span class="fillline"></span>
+              </div>
+              <div class="checkline">
+                <span class="box" :class="{checked: rs?.postLocation==='address_below'}"></span>
+                <span>ADDRESS BELOW</span>
+                <span class="fillline">{{ rs?.postLocation==='address_below' ? (rs?.postAddress || '') : '' }}</span>
+              </div>
+            </div>
+  
+            <!-- Contacts -->
+            <div class="panel contacts">
+              <div v-for="p in contactRows" :key="p.key" class="contact">
+                <span class="box" :class="{ checked: p.isPrimary }"></span>
+                <span class="name">{{ p.name }}</span>
+                <span v-if="p.role" class="role">({{ p.role }})</span>
+                <span v-if="p.phone || p.email" class="sep"> — </span>
+                <span v-if="p.phone" class="phone">{{ p.phone }}</span>
+                <span v-if="p.phone && p.email" class="dot"> · </span>
+                <span v-if="p.email" class="email">{{ p.email }}</span>
+              </div>
+  
+              <div v-if="!contactRows.length" class="contact">
+                <span class="box"></span>
+                <span class="name">No contacts</span>
+              </div>
+            </div>
+  
+            <!-- Purchase / Payment -->
+            <div class="panel pay">
+              <div class="pay-grid">
+                <div class="cell">
+                  <div class="mini">GET INVOICE</div>
+                  <div class="inline">
+                    <span>YES</span><span class="box" :class="{checked: !!rs?.getInvoice}"></span>
+                    <span class="gap"></span>
+                    <span>NO</span><span class="box" :class="{checked: rs && !rs.getInvoice}"></span>
+                  </div>
+                </div>
+  
+                <div class="cell">
+                  <div class="mini">GET DEPOSIT</div>
+                  <div class="inline">
+                    <span>YES</span><span class="box" :class="{checked: !!rs?.getDeposit}"></span>
+                    <span class="gap"></span>
+                    <span>NO</span><span class="box" :class="{checked: rs && !rs.getDeposit}"></span>
+                  </div>
+                </div>
+  
+                <div class="cell">
+                  <div class="mini">PAID</div>
+                  <span class="box" :class="{checked: !!rs?.paid}"></span>
+                </div>
+  
+                <div class="cell wide">
+                  <div class="mini">CHEQUE #</div>
+                  <div class="uline">{{ rs?.chequeNumber || ' ' }}</div>
+                </div>
+  
+                <div class="cell">
+                  <div class="mini">PO.#</div>
+                  <div class="uline">{{ rs?.poNumber || ' ' }}</div>
+                </div>
+  
+                <div class="cell wide">
+                  <div class="mini">CHEQUE / CASH REC’D BY</div>
+                  <div class="uline">{{ rs?.paymentReceivedBy || rs?.receivedBy || ' ' }}</div>
+                </div>
+  
+                <div class="cell">
+                  <div class="mini">AMOUNT</div>
+                  <div class="uline">{{ money(rs?.amount) || ' ' }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+  
+          <!-- PU/Delivering + Return/Drop Off -->
+          <div class="row actions">
+            <div class="panel act">
+              <div class="cap">
+                PICK UP/DELIVERING <span class="sp"></span> TAKE CHEQUE / CASH
+              </div>
+              <div class="line-row">
+                <span class="mini">DATE:</span><span class="line">{{ fmt(rs?.pdDate) || ' ' }}</span>
+                <span class="mini">TIME:</span><span class="line line--short">{{ rs?.pdTime || ' ' }}</span>
+              </div>
+              <div class="line-row">
+                <span class="mini">INSTRUCTIONS:</span><span class="line line--grow">{{ rs?.pdInstructions || ' ' }}</span>
+              </div>
+              <div class="line-row">
+                <span class="mini">COMPLETED BY:</span><span class="line">{{ userLabel(rs?.completedBy) || ' ' }}</span>
+                <span class="mini">DATE:</span><span class="line line--short">{{ fmt(rs?.dateFinished) || ' ' }}</span>
+              </div>
+            </div>
+  
+            <div class="panel act">
+              <div class="cap">
+                RETURN/DROP OFF <span class="sp"></span> PU/TAKE
+                <span class="sp"></span> CHEQUE <span class="box" :class="{checked: !!rs?.rdCheque}"></span>
+              </div>
+              <div class="line-row">
+                <span class="mini">DATE:</span><span class="line">{{ fmt(rs?.rdDate) || ' ' }}</span>
+                <span class="mini">TIME:</span><span class="line line--short">{{ rs?.rdTime || ' ' }}</span>
+              </div>
+              <div class="line-row">
+                <span class="mini">INSTRUCTIONS:</span><span class="line line--grow">{{ rs?.rdInstructions || ' ' }}</span>
+              </div>
+              <div class="line-row">
+                <span class="mini">COMPLETED BY:</span><span class="line">{{ userLabel(rs?.rdCompletedBy) || ' ' }}</span>
+                <span class="mini">DATE:</span><span class="line line--short">{{ fmt(rs?.rdCompletedOn) || ' ' }}</span>
+              </div>
+            </div>
+          </div>
+  
+          <!-- QC / Signature -->
+          <div class="row qc panel">
+            <div class="mini">ABOVE ITEMS RETURNED IN GOOD CONDITION:</div>
+            <span class="line line--short">{{ boolLabel(rs?.qcItemsGood) }}</span>
+            <span class="mini">SIGNATURE</span>
+            <span class="sigwrap line line--wide">
+              <img v-if="rs?.qcSignatureData" :src="rs.qcSignatureData" alt="Signature" />
+            </span>
+            <span class="mini">DATE:</span>
+            <span class="line line--short">{{ fmt(rs?.rdCompletedOn || rs?.dateFinished) || ' ' }}</span>
+          </div>
+        </div>
+  
+        <!-- Bottom Actions -->
+        <div class="footer-actions no-print">
+          <button class="btn" @click="doPrintImage">Print</button>
+          <button class="btn" @click="doPrintImage">Export to PDF</button>
+          <button class="btn" @click="shareLink">Share</button>
+          <span v-if="shareMsg" class="share-msg">{{ shareMsg }}</span>
+        </div>
+      </div>
+    </div>
+  </template>
+  
+<!-- client/src/views/RunSheetSingle.vue -->
+<script setup>
+import { ref, onMounted, computed, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import NavBar from '../components/NavBar.vue';
+import api from '../api.js';
+
+import html2canvas from 'html2canvas';
+
+const route = useRoute();
+
+const me = ref(null);
+const rs = ref(null);
+const sheetEl = ref(null);
+
+// NEW: production doc
+const production = ref(null);
+
+// Helpers
+const logout = () => auth.logout();
+const safeSplitLines = (s) =>
+  (s || '')
+    .split(/\n|,/)
+    .map(t => t.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+// ---- Company block (from MongoDB Production) ----
+const companyAddrLines = computed(() => safeSplitLines(
+  production.value?.productionaddress ?? production.value?.address ?? ''
+));
+
+const companyBlock = computed(() => {
+  const name =
+    production.value?.productioncompany
+    || production.value?.company
+    || production.value?.productionname
+    || production.value?.name
+    || ' ';
+  const title =
+    production.value?.productionname
+    || production.value?.name
+    || '';
+  return {
+    name,
+    showTitle: !!title && title !== name, // only show if distinct
+    title,
+    addr1: companyAddrLines.value[0] || '',
+    addr2: companyAddrLines.value[1] || '',
+    addr3: companyAddrLines.value[2] || '',
+    phone: production.value?.productionphone ?? production.value?.phone ?? ''
+  };
+});
+
+// ---- header helpers ----
+const shortId = computed(() => (rs.value?._id ? rs.value._id.slice(-6) : ' '));
+const setLabel = computed(() => {
+  const v = rs.value?.set;
+  if (!v) return '';
+  if (typeof v === 'string') return `#${v}`;
+  return `${v.number || ''} ${v.name || ''}`.trim();
+});
+
+// ---- supplier (prefer rs.supplier; fallback to takeTo) ----
+const supplierObj = computed(() => {
+  const v = rs.value?.supplier ?? rs.value?.takeTo ?? null;
+  return (v && typeof v === 'object') ? v : null;
+});
+const supplierAddressLines = computed(() => safeSplitLines(supplierObj.value?.address || ''));
+const supplierName    = computed(() => supplierObj.value?.name || '');
+const supplierLine2   = computed(() => supplierAddressLines.value[0] || '');
+const supplierLine3   = computed(() => supplierAddressLines.value[1] || '');
+const supplierLine4   = computed(() => supplierAddressLines.value[2] || '');
+const supplierPhone   = computed(() => supplierObj.value?.phone || '');
+const supplierContact = computed(() => supplierObj.value?.contactName || '');
+const supplierHours   = computed(() => supplierObj.value?.hours || '');
+
+// ---- items -> table rows ----
+const itemsFlat = computed(() => {
+  const out = [];
+  // stops-based items (legacy)
+  (rs.value?.stops || []).forEach(s => {
+    (s.items || []).forEach(ri => {
+      out.push({
+        item: `${ri.name || 'Item'}${ri.quantity ? ' × ' + ri.quantity : ''}`,
+        desc: ri.notes || s.place?.name || ''
+      });
+    });
+  });
+  // runsheet-level items
+  (rs.value?.items || []).forEach(it => {
+    out.push({ item: `${it.name || 'Item'}${(it.quantity ?? it.qty) ? ' × ' + (it.quantity ?? it.qty) : ''}`, desc: it.description || '' });
+  });
+  return out;
+});
+const MIN_ROWS = 14;
+const tableRows = computed(() => {
+  const rows = itemsFlat.value.slice(0, 40);
+  while (rows.length < MIN_ROWS) rows.push({ item: ' ', desc: ' ' });
+  return rows;
+});
+
+// ========= CONTACTS =========
+const contactPerson = ref(null);
+async function hydrateContactPerson() {
+  const v = rs.value?.contact;
+  contactPerson.value = null;
+  if (!v) return;
+  if (typeof v === 'string') {
+    try { contactPerson.value = await api.get(`/tenant/people/${v}`); }
+    catch { contactPerson.value = { _id: v, name: `#${v}`, role: '', phone: '', email: '' }; }
+  } else if (typeof v === 'object') {
+    contactPerson.value = {
+      _id: v._id,
+      name: v.name || v.email || '—',
+      role: v.role || '',
+      phone: v.phone || '',
+      email: v.email || ''
+    };
+  }
+}
+const normalizeRole = (s) =>
+  (typeof s === 'string' && s ? s.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
+const contactRows = computed(() => {
+  const rows = [];
+  if (contactPerson.value) {
+    rows.push({
+      key: contactPerson.value._id || 'contact',
+      isPrimary: true,
+      name: contactPerson.value.name || '—',
+      role: contactPerson.value.role || '',
+      phone: contactPerson.value.phone || '',
+      email: contactPerson.value.email || ''
+    });
+  }
+  const addUserRow = (u, keyLabel) => {
+    if (!u) return;
+    if (typeof u === 'string') {
+      rows.push({ key: keyLabel + ':' + u, isPrimary: false, name: `#${u}`, role: '', phone: '', email: '' });
+    } else {
+      rows.push({
+        key: keyLabel + ':' + (u._id || u.email || u.name || Math.random().toString(36).slice(2)),
+        isPrimary: false,
+        name: u.name || u.email || `#${u._id || ''}`,
+        role: normalizeRole(u.role),
+        phone: u.phone || '',
+        email: u.email || ''
+      });
+    }
+  };
+  addUserRow(rs.value?.assignedTo, 'assignedTo');
+
+  const seen = new Set();
+  return rows.filter(r => {
+    const id = (r.email || '') + '|' + (r.name || '');
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+});
+
+// ---- misc helpers ----
+function fmt(d){ if(!d) return ''; const dt=new Date(d); return isNaN(dt)?'':dt.toLocaleDateString(); }
+const boolLabel = (v) => (v === true ? 'YES' : v === false ? 'NO' : '—');
+const money = (n) => (typeof n === 'number' && isFinite(n))
+  ? new Intl.NumberFormat(undefined,{style:'currency',currency:'USD',maximumFractionDigits:2}).format(n)
+  : '';
+const userLabel = (u) => (!u ? '' : (typeof u === 'string' ? ('#'+u) : (u.name || u.email || u._id || '')));
+
+// ---- share/print ----
+const shareMsg = ref('');
+const shareUrl = computed(() => `${location.origin}/runsheets/${route.params.id}`);
+async function shareLink(){
+  const url = shareUrl.value;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: rs.value?.title || 'Run Sheet', url });
+    } else if (navigator.clipboard) {
+      await navigator.clipboard.writeText(url);
+      shareMsg.value = 'Link copied to clipboard';
+      setTimeout(() => (shareMsg.value = ''), 2000);
+    }
+  } catch {}
+}
+
+// ---- LOAD ----
+async function loadProduction() {
+  const prodId = localStorage.getItem('currentProductionId') || '';
+  if (!prodId) { production.value = null; return; }
+  try {
+    // This hits /api/tenant/productions/:id and carries X-Production-Id in headers via api.js
+    production.value = await api.get(`/tenant/productions/${prodId}`);
+  } catch {
+    production.value = null;
+  }
+}
+
+onMounted(async () => {
+  try { me.value = await auth.fetchMe(); } catch {}
+
+  await loadProduction();
+
+  const data = await api.get(`/tenant/runsheets/${route.params.id}`);
+  rs.value = data;
+
+  // hydrate supplier/takeTo/set if they came back as ids
+  if (rs.value?.supplier && typeof rs.value.supplier === 'string') {
+    try { rs.value.supplier = await api.get(`/tenant/suppliers/${rs.value.supplier}`); } catch {}
+  }
+  if (rs.value?.takeTo && typeof rs.value.takeTo === 'string') {
+    try { rs.value.takeTo = await api.get(`/tenant/places/${rs.value.takeTo}`); } catch {}
+  }
+  if (rs.value?.set && typeof rs.value.set === 'string') {
+    try { rs.value.set = await api.get(`/tenant/sets/${rs.value.set}`); } catch {}
+  }
+
+  await hydrateContactPerson();
+});
+watch(() => rs.value?.contact, hydrateContactPerson);
+
+// ---- PRINT AS 1-PAGE IMAGE (unchanged) ----
+async function doPrintImage() {
+  const el = sheetEl.value;
+  if (!el) return;
+
+  const ORIENTATION = 'landscape';
+  const FONT_BOOST = 1.35;
+  const PAGE_MARGIN_IN = 0.15;
+  const PRINT_DPI = 96;
+  const H2C_SCALE = Math.min(3, window.devicePixelRatio || 2);
+
+  const pageWIn = ORIENTATION === 'portrait' ? 11 : 8.5;
+  const pageHIn = ORIENTATION === 'portrait' ? 8.5 : 11;
+  const innerWIn = pageWIn - PAGE_MARGIN_IN * 2;
+  const innerHIn = pageHIn - PAGE_MARGIN_IN * 2;
+
+  const targetPxW = Math.round(innerWIn * PRINT_DPI);
+
+  const prev = { fontSize: el.style.fontSize, width: el.style.width, maxWidth: el.style.maxWidth };
+  el.style.fontSize = `${Math.round(FONT_BOOST * 100)}%`;
+  el.style.width = `${targetPxW}px`;
+  el.style.maxWidth = `${targetPxW}px`;
+
+  try {
+    const canvas = await html2canvas(el, {
+      backgroundColor: '#fff',
+      scale: H2C_SCALE,
+      useCORS: true,
+      windowWidth: el.scrollWidth,
+      windowHeight: el.scrollHeight
+    });
+    const dataUrl = canvas.toDataURL('image/png');
+
+    const ratio = canvas.height / canvas.width;
+    let dispWIn = innerWIn;
+    let dispHIn = dispWIn * ratio;
+    if (dispHIn > innerHIn) { dispHIn = innerHIn; dispWIn = dispHIn / ratio; }
+
+    const w = window.open('', 'rs_print');
+    if (!w) return;
+
+    w.document.write(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Run Sheet</title>
+<style>
+  @page { size: ${pageWIn}in ${pageHIn}in; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  .page {
+    width: ${pageWIn}in; height: ${pageHIn}in;
+    display: flex; align-items: center; justify-content: center;
+    background: #fff;
+  }
+  img { width: ${dispWIn}in; height: ${dispHIn}in; display: block; }
+</style>
+</head>
+<body>
+  <div class="page">
+    <img src="${dataUrl}" alt="Run Sheet" />
+  </div>
+</body>
+</html>`);
+    w.document.close();
+    w.focus();
+    w.onload = () => { w.print(); w.close(); };
+  } catch (e) {
+    console.error(e);
+    window.print();
+  } finally {
+    el.style.fontSize = prev.fontSize || '';
+    el.style.width = prev.width || '';
+    el.style.maxWidth = prev.maxWidth || '';
+  }
+}
+</script>
+
+  
+  
+  <style scoped>
+  /* ===== Base (black & white) ===== */
+  .page { background:#fff; color:#000; }
+  .sheet-wrap { max-width:820px; margin:0 auto; padding:16px; }
+  .sheet { border:1px solid #000; padding:10px; background:#fff; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+  
+  /* Common */
+  .row { border:1px solid #000; border-left:none; border-right:none; }
+  .row + .row { border-top:none; }
+  .panel { border:1px solid #000; background:#fff; padding:8px; }
+  .label-sm { font-weight:700; margin-right:6px; }
+  .mini { font-size:12px; font-weight:700; letter-spacing:.02em; }
+  .line { display:inline-block; min-width:120px; border-bottom:1px solid #000; line-height:1.2; }
+  .line--short { min-width:80px; }
+  .line--wide { min-width:260px; }
+  .line--grow { flex:1 1 auto; min-width:200px; }
+  .box { display:inline-block; width:13px; height:13px; border:1px solid #000; margin-right:6px; position:relative; }
+  .box.checked::after { /* Use a real glyph so it prints (no background fills needed) */
+    content: "✓";
+    position:absolute;
+    left: 1px;
+    top: -1px;
+    font-size: 13px;
+    line-height: 1;
+    font-weight: 900;
+    color:#000;
+  }
+  .box--ghost { border:1px solid #000; }
+  
+  /* Header */
+  .header { display:flex; padding:6px 8px; }
+  .h-left { flex:1 1 35%; display:flex; align-items:flex-end; }
+  .h-center { flex:1 1 30%; text-align:center; }
+  .h-right { flex:1 1 35%; display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+  .title { font-weight:900; letter-spacing:.06em; }
+  .subtitle { font-weight:800; font-size:12px; letter-spacing:.08em; margin-top:2px; }
+  .line-pair { display:flex; align-items:flex-end; gap:6px; }
+  .label { font-weight:800; }
+  
+  /* Dates */
+  .dates { display:flex; gap:16px; padding:6px 8px; }
+  .half { flex:1 1 50%; }
+  
+  /* Address/Supplier */
+  .addr-supplier { display:grid; grid-template-columns: 1.2fr 1fr; gap:10px; padding:10px 0; border:none; }
+  .addr .addr-line { line-height:1.4; }
+  .addr .strong { font-weight:800; }
+  .supplier .field { display:flex; align-items:center; gap:6px; margin:5px 0; }
+  .supplier .fill { flex:1 1 auto; border-bottom:1px solid #000; min-height:18px; }
+  .supplier .fill--hrs { max-width:120px; }
+  .supplier .hrs { margin-left:auto; }
+  
+  /* Items table */
+  .table { border:1px solid #000; margin:10px 0; }
+  .thead { display:grid; grid-template-columns:220px 1fr; }
+  .th { padding:6px; font-weight:800; border-right:1px solid #000; }
+  .th:last-child { border-right:none; }
+  .tbody .tr { display:grid; grid-template-columns:220px 1fr; border-top:1px solid #000; min-height:28px; }
+  .td { padding:4px 6px; border-right:1px solid #000; }
+  .td:last-child { border-right:none; }
+  
+  /* Lower row */
+  .lower { display:grid; grid-template-columns: 1.1fr 0.9fr; gap:10px; padding:10px 0; border:none; }
+  .dest .checkline { display:flex; align-items:center; gap:8px; margin:6px 0; }
+  .fillline { flex:1 1 auto; border-bottom:1px solid #000; min-height:16px; }
+  .contacts { padding:0; }
+  .contact { display:grid; grid-template-columns:16px 1fr auto; align-items:center; gap:8px; border-bottom:1px solid #000; padding:6px 8px; }
+  .contact:last-child { border-bottom:none; }
+  .contact .name { font-weight:700; }
+  .contact .phone { font-size:12px; }
+  .pay { grid-column: 1 / -1; }
+  .pay-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  .cell { border:1px solid #000; padding:6px; min-height:54px; display:flex; flex-direction:column; gap:6px; }
+  .cell.wide { grid-column: span 2; }
+  .inline { display:inline-flex; align-items:center; gap:6px; }
+  .gap { width:14px; display:inline-block; }
+  .uline { border-bottom:1px solid #000; min-height:18px; }
+  
+  /* Actions row */
+  .actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:10px 0; border:none; }
+  .act .cap { font-weight:800; border-bottom:1px solid #000; padding-bottom:4px; margin-bottom:6px; display:flex; align-items:center; }
+  .act .sp { width:10px; display:inline-block; }
+  .act .line-row { display:flex; align-items:center; gap:8px; margin:6px 0; }
+  
+  /* QC */
+  .qc { display:flex; align-items:center; gap:10px; margin-top:6px; }
+  .sigwrap { display:inline-flex; align-items:center; justify-content:center; height:38px; }
+  .sigwrap img { max-height:34px; }
+  
+  /* Footer actions */
+  .footer-actions { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:12px; }
+  .btn { appearance:none; background:#000; color:#fff; border:1px solid #000; padding:8px 12px; cursor:pointer; }
+  .btn:hover { background:#fff; color:#000; }
+  .share-msg { font-size:12px; margin-left:8px; }
+  
+  /* Print — force single page & reliable ticks */
+ 
+  </style>
+  
+  
+  
+  
+  
+  
+  
